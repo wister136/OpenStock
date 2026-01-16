@@ -10,6 +10,9 @@ import type { OHLCVBar } from '@/lib/indicators';
 import { bollingerBands, ema, lastFinite, macd, rollingMax, rollingMin, rsi, sma } from '@/lib/indicators';
 import { useI18n } from '@/lib/i18n';
 
+import { detectMarketRegime, recommendStrategies } from './engine/regime';
+import type { MarketRegimeInfo, StrategyRecommendation } from './types';
+
 import type { AllowedFreq, StrategyKey, StrategyParams, IndicatorKey, Marker, OverlayMarker, StrategySignal, BacktestTrade, BacktestResult, BacktestConfig
 } from './types';
 import {
@@ -74,6 +77,12 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
   const [showBB, setShowBB] = useState(false);
   const [showRSI, setShowRSI] = useState(false);
   const [showMACD, setShowMACD] = useState(false);
+
+// 新增：市场状态与推荐
+  const [regimeInfo, setRegimeInfo] = useState<MarketRegimeInfo | null>(null);
+  const [recommendations, setRecommendations] = useState<StrategyRecommendation[]>([]);
+ // 新增：回测窗口模式
+  const [btWindowMode, setBtWindowMode] = useState<'full' | 'recent_60' | 'recent_120'>('full');
 
   // Strategy (A: arrows only)
   const [strategy, setStrategy] = useState<StrategyKey>('none');
@@ -163,6 +172,7 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
 
     const repStored = safeLocalStorageGet('openstock_bt_allow_same_dir_v1');
     if (typeof repStored === 'boolean') setBtAllowSameDirRepeat(repStored);
+
   }, []);
 
   useEffect(() => {
@@ -204,6 +214,24 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
     useEffect(() => {
       safeLocalStorageSet('openstock_bt_allow_same_dir_v1', btAllowSameDirRepeat);
     }, [btAllowSameDirRepeat]);
+
+// 新增：计算市场状态与推荐策略
+  useEffect(() => {
+    if (!bars || bars.length < 60) {
+      setRegimeInfo(null);
+      setRecommendations([]);
+      return;
+    }
+    const info = detectMarketRegime(bars);
+    setRegimeInfo(info);
+
+    const timer = setTimeout(() => {
+      // 默认评估最近 300 根K线
+      const recs = recommendStrategies(bars, btCapital, stParams, info.regime, 300);
+      setRecommendations(recs);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [bars, btCapital, stParams]);
 
   // Modal (TradingView-like)
   const [dlgOpen, setDlgOpen] = useState(false);
@@ -350,32 +378,71 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
     [btFeeBps, btSlippageBps, btAllowPyramiding, btAllowSameDirRepeat, btOrderLots, btMaxEntries, btHardDdPct, btDateFromText, btDateToText]
   );
 
-  // Backtest sample filtering by date range (YYYY-MM-DD, no time)
+//   // Backtest sample filtering by date range (YYYY-MM-DD, no time)
+//   const btBars = useMemo(() => {
+//     if (!bars || bars.length === 0) return bars;
+//     const from = btDateFromText?.trim();
+//     const to = btDateToText?.trim();
+//     if (!from && !to) return bars;
+//
+//     const toSec = (d: string, endOfDay: boolean) => {
+//       if (!d) return NaN;
+//       const iso = endOfDay ? `${d}T23:59:59` : `${d}T00:00:00`;
+//       const ms = Date.parse(iso);
+//       return Number.isFinite(ms) ? Math.floor(ms / 1000) : NaN;
+//     };
+//
+//     const startSec = from ? toSec(from, false) : NaN;
+//     const endSec = to ? toSec(to, true) : NaN;
+//
+//     // invalid input -> fallback to full sample
+//     if ((from && !Number.isFinite(startSec)) || (to && !Number.isFinite(endSec))) return bars;
+//
+//     const lo = Number.isFinite(startSec) ? startSec : -Infinity;
+//     const hi = Number.isFinite(endSec) ? endSec : Infinity;
+//     const filtered = bars.filter((b) => b.t >= lo && b.t <= hi);
+//     // Avoid empty sample which makes UI confusing
+//     return filtered.length >= 10 ? filtered : bars;
+//   }, [bars, btDateFromText, btDateToText]);
+
+    // 修改：支持滚动窗口选择
   const btBars = useMemo(() => {
     if (!bars || bars.length === 0) return bars;
-    const from = btDateFromText?.trim();
-    const to = btDateToText?.trim();
-    if (!from && !to) return bars;
 
-    const toSec = (d: string, endOfDay: boolean) => {
-      if (!d) return NaN;
-      const iso = endOfDay ? `${d}T23:59:59` : `${d}T00:00:00`;
-      const ms = Date.parse(iso);
-      return Number.isFinite(ms) ? Math.floor(ms / 1000) : NaN;
-    };
+    let baseBars = bars;
+    const barsPerDay = freq === '1d' ? 1 : freq === '60m' ? 4 : freq === '30m' ? 8 : freq === '15m' ? 16 : 48;
 
-    const startSec = from ? toSec(from, false) : NaN;
-    const endSec = to ? toSec(to, true) : NaN;
+    if (btWindowMode === 'recent_60') {
+      const count = 60 * barsPerDay;
+      if (bars.length > count) baseBars = bars.slice(-count);
+    } else if (btWindowMode === 'recent_120') {
+      const count = 120 * barsPerDay;
+      if (bars.length > count) baseBars = bars.slice(-count);
+    }
 
-    // invalid input -> fallback to full sample
-    if ((from && !Number.isFinite(startSec)) || (to && !Number.isFinite(endSec))) return bars;
+    if (btWindowMode === 'full') {
+      const from = btDateFromText?.trim();
+      const to = btDateToText?.trim();
+      if (!from && !to) return baseBars;
 
-    const lo = Number.isFinite(startSec) ? startSec : -Infinity;
-    const hi = Number.isFinite(endSec) ? endSec : Infinity;
-    const filtered = bars.filter((b) => b.t >= lo && b.t <= hi);
-    // Avoid empty sample which makes UI confusing
-    return filtered.length >= 10 ? filtered : bars;
-  }, [bars, btDateFromText, btDateToText]);
+      const toSec = (d: string, endOfDay: boolean) => {
+        if (!d) return NaN;
+        const iso = endOfDay ? `${d}T23:59:59` : `${d}T00:00:00`;
+        const ms = Date.parse(iso);
+        return Number.isFinite(ms) ? Math.floor(ms / 1000) : NaN;
+      };
+      const startSec = from ? toSec(from, false) : NaN;
+      const endSec = to ? toSec(to, true) : NaN;
+
+      if ((from && !Number.isFinite(startSec)) || (to && !Number.isFinite(endSec))) return baseBars;
+
+      const lo = Number.isFinite(startSec) ? startSec : -Infinity;
+      const hi = Number.isFinite(endSec) ? endSec : Infinity;
+      const filtered = baseBars.filter((b) => b.t >= lo && b.t <= hi);
+      return filtered.length >= 10 ? filtered : baseBars;
+    }
+    return baseBars;
+  }, [bars, btDateFromText, btDateToText, btWindowMode, freq]);
 
   const setBtConfig = useCallback(
     (next: BacktestConfig | ((prev: BacktestConfig) => BacktestConfig)) => {
@@ -1316,7 +1383,34 @@ useEffect(() => {
       </div>
 
       {/* Footer cards */}
-      <div className="px-5 pb-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="px-5 pb-5 grid grid-cols-1 md:grid-cols-4 gap-3">
+      {/* ... 保留原有的 MA, RSI 卡片 ... */}
+        {/* === 新增：市场状态卡片 (插入在策略卡片之前) === */}
+        <div className="rounded-xl bg-white/5 border border-white/5 p-4 relative overflow-hidden">
+          <div className="relative z-10">
+            <div className="text-xs text-gray-400 flex items-center gap-2">
+              市场状态
+              {regimeInfo?.regime === 'TREND_UP' && <span className="text-red-400 border border-red-400/30 px-1 rounded text-[10px]">上涨</span>}
+              {regimeInfo?.regime === 'TREND_DOWN' && <span className="text-green-400 border border-green-400/30 px-1 rounded text-[10px]">下跌</span>}
+              {regimeInfo?.regime === 'RANGE' && <span className="text-blue-400 border border-blue-400/30 px-1 rounded text-[10px]">震荡</span>}
+              {regimeInfo?.regime === 'HIGH_VOL' && <span className="text-yellow-400 border border-yellow-400/30 px-1 rounded text-[10px]">高波动</span>}
+            </div>
+            <div className="mt-2 text-sm text-gray-100 font-medium truncate">
+              {regimeInfo?.description || '分析中.....'}
+            </div>
+            <div className="mt-1 text-[10px] text-gray-500 font-mono">
+              ADX:{regimeInfo?.adx.toFixed(0)} ATR%:{regimeInfo?.atrPct.toFixed(2)}
+            </div>
+          </div>
+          <div className={cn("absolute -right-2 -bottom-4 text-6xl opacity-10 select-none",
+            regimeInfo?.regime === 'TREND_UP' ? 'text-red-500' :
+            regimeInfo?.regime === 'TREND_DOWN' ? 'text-green-500' : 'text-blue-500'
+          )}>
+            {regimeInfo?.regime === 'TREND_UP' ? '↗' : regimeInfo?.regime === 'TREND_DOWN' ? '↘' : '≈'}
+          </div>
+        </div>
+        {/* === 新增结束 === */}
+        {/* ... 保留原有的策略卡片 ... */}
         <div className="rounded-xl bg-white/5 border border-white/5 p-4">
           <div className="text-xs text-gray-400">MA5 / MA10 / MA20</div>
           <div className="mt-2 text-sm text-gray-100">
@@ -1517,6 +1611,39 @@ useEffect(() => {
                 </div>
 
                 <div className="space-y-2 overflow-auto pr-1 flex-1 min-h-0">
+                  {/* === 插入：智能推荐 === */}
+                  {recommendations.length > 0 && (
+                    <div className="mb-4 space-y-2">
+                      <div className="text-xs text-yellow-400/80 font-medium px-1 flex items-center gap-1">
+                        <span>✨</span> 智能推荐 ({regimeInfo?.regime})
+                      </div>
+                      <div className="grid grid-cols-1 gap-2">
+                        {recommendations.slice(0, 3).map((rec, idx) => (
+                          <div
+                            key={rec.key}
+                            className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-yellow-500/10 transition"
+                            onClick={() => { setStrategy(rec.key); setDlgOpen(false); }}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-yellow-500">Top{idx + 1} {rec.label}</span>
+                                <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300">
+                                  评分 {rec.score.toFixed(0)}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-gray-400 mt-0.5 truncate">{rec.reason}</div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div className="text-xs font-medium text-gray-200">PF {rec.pf.toFixed(2)}</div>
+                              <div className="text-[10px] text-gray-500">净利 {rec.netProfitPct.toFixed(1)}%</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* === 插入结束 === */}
+
                   {sortedStrategyItems.map((it) => {
                     const s = strategySummaryMap[it.key];
                     const closedTrades = s?.tradeCount ?? 0;
@@ -1631,6 +1758,24 @@ useEffect(() => {
 
                 {/* Right: backtest */}
                 <div className="flex-1 space-y-3 overflow-auto pr-1 min-h-0">
+                {/* === 插入：回测范围选择器 === */}
+                    <div className="flex items-center gap-2 mb-3 bg-black/20 p-1 rounded-lg">
+                      <div className="text-xs text-gray-500 px-2 shrink-0">范围</div>
+                      {(['full', 'recent_60', 'recent_120'] as const).map(m => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setBtWindowMode(m)}
+                          className={cn(
+                            "flex-1 text-xs py-1 rounded transition",
+                            btWindowMode === m ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"
+                          )}
+                        >
+                          {m === 'full' ? '全部' : m === 'recent_60' ? '近60天' : '近120天'}
+                        </button>
+                      ))}
+                    </div>
+                    {/* === 插入结束 === */}
                   <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                     <div className="flex flex-col gap-1">
                       <div className="text-sm text-gray-400">当前策略</div>

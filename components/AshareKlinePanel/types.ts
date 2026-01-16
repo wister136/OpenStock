@@ -492,3 +492,27 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
 // Backward-compatible aliases (older code expects PYRAMID_* names)
 export const PYRAMID_ORDER_LOTS = ORDER_LOTS;
 export const PYRAMID_MAX_ENTRIES = MAX_ENTRIES;
+
+// === 在文件末尾追加以下代码 ===
+
+export type MarketRegime = 'TREND_UP' | 'TREND_DOWN' | 'RANGE' | 'HIGH_VOL' | 'UNCERTAIN';
+
+export type MarketRegimeInfo = {
+  regime: MarketRegime;
+  adx: number;       // 趋势强度
+  atrPct: number;    // 波动率 (ATR/Close %)
+  maTrend: number;   // 1=Bull, -1=Bear, 0=Neutral (EMA20 vs EMA50)
+  description: string;
+  timestamp: number;
+};
+
+export type StrategyRecommendation = {
+  key: StrategyKey;
+  label: string;
+  score: number;        // 综合评分
+  reason: string;       // 推荐理由
+  winRate: number;      // 回测胜率
+  netProfitPct: number; // 回测净收益
+  pf: number;           // 盈亏比
+  drawdown: number;     // 最大回撤
+};

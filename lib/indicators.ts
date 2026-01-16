@@ -129,3 +129,109 @@ export function rollingMin(values: number[], period: number): number[] {
   }
   return out;
 }
+
+// === 在文件末尾追加以下代码 ===
+// 计算 ADX (趋势强度)
+export function adx(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  period = 14
+): { adx: number[]; pdi: number[]; mdi: number[] } {
+  const len = closes.length;
+  const outAdx = new Array(len).fill(NaN);
+  const outPdi = new Array(len).fill(NaN);
+  const outMdi = new Array(len).fill(NaN);
+
+  if (len < period + 1) return { adx: outAdx, pdi: outPdi, mdi: outMdi };
+
+  const tr = new Array(len).fill(0);
+  const pdm = new Array(len).fill(0);
+  const mdm = new Array(len).fill(0);
+
+  // 1. Calculate TR, +DM, -DM
+  for (let i = 1; i < len; i++) {
+    const h = highs[i];
+    const l = lows[i];
+    const pc = closes[i - 1];
+    const ph = highs[i - 1];
+    const pl = lows[i - 1];
+
+    tr[i] = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+
+    const up = h - ph;
+    const down = pl - l;
+
+    if (up > down && up > 0) pdm[i] = up;
+    if (down > up && down > 0) mdm[i] = down;
+  }
+
+  // 2. Wilder's Smoothing
+  const smooth = (src: number[], p: number) => {
+    const res = new Array(src.length).fill(0);
+    let sum = 0;
+    for (let i = 1; i <= p; i++) sum += src[i];
+    res[p] = sum;
+    let val = sum;
+    for (let i = p + 1; i < src.length; i++) {
+      val = val - val / p + src[i];
+      res[i] = val;
+    }
+    return res;
+  };
+
+  const trS = smooth(tr, period);
+  const pdmS = smooth(pdm, period);
+  const mdmS = smooth(mdm, period);
+
+  // 3. Calculate +DI, -DI, DX, ADX
+  for (let i = period; i < len; i++) {
+    const t = trS[i];
+    if (t === 0) continue;
+
+    const pdi = (pdmS[i] / t) * 100;
+    const mdi = (mdmS[i] / t) * 100;
+    outPdi[i] = pdi;
+    outMdi[i] = mdi;
+
+    const div = pdi + mdi;
+    const dx = div === 0 ? 0 : (Math.abs(pdi - mdi) / div) * 100;
+
+    if (i === period * 2 - 1) {
+      outAdx[i] = dx;
+    } else if (i >= period * 2) {
+      const prev = outAdx[i - 1];
+      if (Number.isFinite(prev)) {
+        outAdx[i] = (prev * (period - 1) + dx) / period;
+      } else {
+        outAdx[i] = dx;
+      }
+    }
+  }
+
+  return { adx: outAdx, pdi: outPdi, mdi: outMdi };
+}
+
+// 计算 ATR (波动率)
+export function atr(highs: number[], lows: number[], closes: number[], period: number): number[] {
+  const len = closes.length;
+  const out = new Array(len).fill(NaN);
+  if (len < period + 1) return out;
+
+  const tr = new Array(len).fill(0);
+  for (let i = 1; i < len; i++) {
+    const h = highs[i];
+    const l = lows[i];
+    const pc = closes[i - 1];
+    tr[i] = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+  }
+
+  let sum = 0;
+  for (let i = 1; i <= period; i++) sum += tr[i];
+  out[period] = sum / period;
+
+  for (let i = period + 1; i < len; i++) {
+    out[i] = (out[i - 1] * (period - 1) + tr[i]) / period;
+  }
+  return out;
+}
