@@ -1,0 +1,2261 @@
+'use client';
+
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+import type { OHLCVBar } from '@/lib/indicators';
+import { bollingerBands, ema, lastFinite, macd, rollingMax, rollingMin, rsi, sma } from '@/lib/indicators';
+import { useI18n } from '@/lib/i18n';
+
+type AllowedFreq = '1m' | '5m' | '15m' | '30m' | '60m' | '1d';
+
+type StrategyKey = 'none' | 'maCross' | 'rsiReversion' | 'bollingerBreakout' | 'channelBreakout';
+
+type IndicatorKey = 'ma5' | 'ma10' | 'ma20' | 'ema20' | 'bbands' | 'rsi14' | 'macd';
+
+const FREQ_OPTIONS: Array<{ key: AllowedFreq; labelKey: string; disabled?: boolean }> = [
+  { key: '1m', labelKey: 'ashare.freq.1m', disabled: true },
+  { key: '5m', labelKey: 'ashare.freq.5m' },
+  { key: '15m', labelKey: 'ashare.freq.15m' },
+  { key: '30m', labelKey: 'ashare.freq.30m' },
+  { key: '60m', labelKey: 'ashare.freq.60m' },
+  { key: '1d', labelKey: 'ashare.freq.1d' },
+];
+
+const STRATEGY_OPTIONS: Array<{ key: StrategyKey; label: string; note?: string }> = [
+  { key: 'none', label: '无策略', note: '仅展示行情与指标' },
+  { key: 'maCross', label: '均线交叉', note: 'MA5 上穿/下穿 MA20 → 买入/卖出' },
+  { key: 'rsiReversion', label: 'RSI 均值回归', note: 'RSI14 上穿 30 / 下穿 70 → 买入/卖出' },
+  { key: 'bollingerBreakout', label: '布林带突破', note: '收盘价突破上/下轨 → 买入/卖出' },
+  { key: 'channelBreakout', label: '通道突破', note: '突破 20 根最高/最低 → 买入/卖出' },
+];
+
+const INDICATOR_OPTIONS: Array<{
+  key: IndicatorKey;
+  name: string;
+  category: '趋势' | '震荡' | '波动';
+  location: 'overlay' | 'pane';
+  desc: string;
+}> = [
+  { key: 'ma5', name: 'MA 5', category: '趋势', location: 'overlay', desc: '5 周期简单移动平均线' },
+  { key: 'ma10', name: 'MA 10', category: '趋势', location: 'overlay', desc: '10 周期简单移动平均线' },
+  { key: 'ma20', name: 'MA 20', category: '趋势', location: 'overlay', desc: '20 周期简单移动平均线' },
+  { key: 'ema20', name: 'EMA 20', category: '趋势', location: 'overlay', desc: '20 周期指数移动平均线' },
+  { key: 'bbands', name: '布林带', category: '波动', location: 'overlay', desc: '20 周期，2σ 上/中/下轨' },
+  { key: 'rsi14', name: 'RSI 14', category: '震荡', location: 'pane', desc: '相对强弱指标（副图）' },
+  { key: 'macd', name: 'MACD', category: '震荡', location: 'pane', desc: '12/26/9（副图）' },
+];
+
+function tvChartUrl(symbol: string) {
+  // Use TradingView chart view so it feels closer to the user's expectation.
+  // Symbol already includes exchange prefix like SSE:603516 / SZSE:002317
+  return `https://cn.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`;
+}
+
+function safeLocalStorageGet(key: string): any | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function safeLocalStorageSet(key: string, value: any) {
+  try {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {}
+}
+
+function fmt(n: number | null | undefined, digits = 2) {
+  if (n == null || !Number.isFinite(n)) return '--';
+  return n.toFixed(digits);
+}
+
+function Sparkline({ values, height = 42, stroke = 'rgba(255,255,255,0.85)' }: { values: number[]; height?: number; stroke?: string }) {
+  const w = 240;
+  const h = height;
+  if (!values || values.length < 2) {
+    return <div className="text-xs text-gray-500">--</div>;
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const pad = 3;
+  const xStep = (w - pad * 2) / (values.length - 1);
+  const pts = values.map((v, i) => {
+    const x = pad + i * xStep;
+    const y = pad + (h - pad * 2) * (1 - (v - min) / span);
+    return [x, y];
+  });
+  const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(' ');
+  return (
+    <svg className="block w-full h-full" width="100%" height="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <path d={d} fill="none" stroke={stroke} strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+type Marker = {
+  time: number;
+  position: 'aboveBar' | 'belowBar';
+  shape: 'arrowUp' | 'arrowDown';
+  color: string;
+  text: string;
+  side: 'BUY' | 'SELL';
+  reason?: string;
+};
+
+type OverlayMarker = Marker & {
+  x: number;
+  y: number;
+  side: 'BUY' | 'SELL';
+  key: string;
+};
+
+type StrategySignal = {
+  index: number; // signal is generated at bar[index] close
+  side: 'BUY' | 'SELL';
+  reason: string;
+};
+
+type BacktestTrade = {
+  entryIndex: number;
+  exitIndex: number;
+  entryTime: number;
+  exitTime: number;
+  entryPrice: number;
+  exitPrice: number;
+  pnl: number;
+  pnlPct: number;
+  barsHeld: number;
+  open: boolean; // true when force-closed at last close for mark-to-market
+};
+
+type BacktestResult = {
+  ok: boolean;
+  error?: string;
+  initialCapital: number;
+  finalEquity: number;
+  netProfit: number;
+  netProfitPct: number;
+  maxDrawdown: number;
+  maxDrawdownPct: number;
+  trades: BacktestTrade[];
+  winRate: number;
+  profitFactor: number | null;
+  avgTradePct: number | null;
+  buyHoldPct: number | null;
+  grossProfit: number;
+  grossLoss: number;
+  lotSize: number;
+  exposurePct: number;
+  avgWinPct: number | null;
+  avgLossPct: number | null;
+  expectancyPct: number | null;
+  avgBarsHeld: number | null;
+  maxBarsHeld: number | null;
+  maxConsecWins: number | null;
+  maxConsecLosses: number | null;
+  equityCurve: number[];
+  drawdownPctCurve: number[];
+  cagrPct: number | null;
+  sharpe: number | null;
+  calmar: number | null;
+  annualVolPct: number | null;
+  sortino: number | null;
+  ulcerIndex: number | null;
+  recoveryFactor: number | null;
+  maxDdDurationDays: number | null;
+  maxDdStart: string | null;
+  maxDdEnd: string | null;
+  sampleStart: string | null;
+  sampleEnd: string | null;
+  sampleDays: number | null;
+  monthlyReturns: { month: string; retPct: number }[];
+};
+
+function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[]): StrategySignal[] {
+  if (!bars.length || strategy === 'none') return [];
+
+  const closes = bars.map((b) => b.c);
+  const out: StrategySignal[] = [];
+
+  const push = (i: number, side: 'BUY' | 'SELL', reason: string) => {
+    if (i <= 0 || i >= bars.length) return;
+    const t = bars[i]?.t;
+    if (!Number.isFinite(t)) return;
+    out.push({ index: i, side, reason });
+  };
+
+  if (strategy === 'maCross') {
+    const ma5 = sma(closes, 5);
+    const ma20 = sma(closes, 20);
+    for (let i = 1; i < bars.length; i++) {
+      const p5 = ma5[i - 1];
+      const p20 = ma20[i - 1];
+      const c5 = ma5[i];
+      const c20 = ma20[i];
+      if (!Number.isFinite(p5) || !Number.isFinite(p20) || !Number.isFinite(c5) || !Number.isFinite(c20)) continue;
+      if (p5 <= p20 && c5 > c20) push(i, 'BUY', 'MA5 上穿 MA20');
+      if (p5 >= p20 && c5 < c20) push(i, 'SELL', 'MA5 下穿 MA20');
+    }
+  }
+
+  if (strategy === 'rsiReversion') {
+    const r14 = rsi(closes, 14);
+    for (let i = 1; i < bars.length; i++) {
+      const p = r14[i - 1];
+      const c = r14[i];
+      if (!Number.isFinite(p) || !Number.isFinite(c)) continue;
+      // BUY when crosses up 30, SELL when crosses down 70
+      if (p < 30 && c >= 30) push(i, 'BUY', 'RSI 上穿 30');
+      if (p > 70 && c <= 70) push(i, 'SELL', 'RSI 下穿 70');
+    }
+  }
+
+  if (strategy === 'bollingerBreakout') {
+    const bb = bollingerBands(closes, 20, 2);
+    for (let i = 1; i < bars.length; i++) {
+      const pClose = closes[i - 1];
+      const cClose = closes[i];
+      const pU = bb.upper[i - 1];
+      const cU = bb.upper[i];
+      const pL = bb.lower[i - 1];
+      const cL = bb.lower[i];
+      if (![pClose, cClose, pU, cU, pL, cL].every((x) => Number.isFinite(x))) continue;
+
+      if (pClose <= pU && cClose > cU) push(i, 'BUY', '突破上轨');
+      if (pClose >= pL && cClose < cL) push(i, 'SELL', '跌破下轨');
+    }
+  }
+
+  if (strategy === 'channelBreakout') {
+    const period = 20;
+    // Use previous window max/min (exclude current bar)
+    const highs = bars.map((b) => b.h);
+    const lows = bars.map((b) => b.l);
+    const rollHigh = rollingMax(highs, period);
+    const rollLow = rollingMin(lows, period);
+    for (let i = 1; i < bars.length; i++) {
+      const prevHigh = rollHigh[i - 1];
+      const prevLow = rollLow[i - 1];
+      const cClose = closes[i];
+      if (![prevHigh, prevLow, cClose].every((x) => Number.isFinite(x))) continue;
+      if (cClose > prevHigh) push(i, 'BUY', `突破${period}根最高`);
+      if (cClose < prevLow) push(i, 'SELL', `跌破${period}根最低`);
+    }
+  }
+
+  return out;
+}
+
+function buildStrategyMarkers(strategy: StrategyKey, bars: OHLCVBar[]) {
+  if (!bars.length || strategy === 'none') return { markers: [] as Marker[], status: null as string | null };
+
+  const signals = computeStrategySignals(strategy, bars);
+
+  const markers: Marker[] = signals.map((s) => {
+    const t0 = bars[s.index]?.t;
+    return {
+      time: t0,
+      side: s.side,
+      position: s.side === 'BUY' ? 'belowBar' : 'aboveBar',
+      shape: s.side === 'BUY' ? 'arrowUp' : 'arrowDown',
+      color: s.side === 'BUY' ? '#ef4444' : '#22c55e',
+      text: s.side === 'BUY' ? '买入' : '卖出',
+      reason: s.reason,
+    };
+  });
+
+  let statusBase: string | null = null;
+  if (strategy === 'maCross') statusBase = 'MA5/MA20 交叉信号：MA5 上穿/下穿 MA20（买入/卖出）';
+  if (strategy === 'rsiReversion') statusBase = 'RSI14 触发信号：上穿 30 买入 / 下穿 70 卖出';
+  if (strategy === 'bollingerBreakout') statusBase = '布林带突破：突破上轨买入/跌破下轨卖出';
+  if (strategy === 'channelBreakout') statusBase = '通道突破：突破前 20 根最高/最低 → 买入/卖出';
+
+  const count = markers.length;
+  let status = statusBase;
+  if (status) {
+    status = `${status}${count === 0 ? '（当前窗口无信号）' : ''}；信号数=${count}`;
+    if (count > 0) {
+      const last = markers[count - 1];
+      try {
+        status += `；最近=${last.text}@${new Date((last.time as any) * 1000).toLocaleString()}`;
+      } catch (e) {}
+    }
+    status += '；回测请在弹窗“回测”页查看（下一根开盘成交）';
+  }
+
+  return { markers, status };
+}
+
+function runBacktestNextOpen(strategy: StrategyKey, bars: OHLCVBar[], initialCapital: number): BacktestResult {
+  const cap = Number(initialCapital);
+  if (!Number.isFinite(cap) || cap <= 0) {
+    return {
+      ok: false,
+      error: '初始资金不合法',
+      initialCapital: 0,
+      finalEquity: 0,
+      netProfit: 0,
+      netProfitPct: 0,
+      maxDrawdown: 0,
+      maxDrawdownPct: 0,
+      trades: [],
+      winRate: 0,
+      profitFactor: null,
+      avgTradePct: null,
+      buyHoldPct: null,
+      grossProfit: 0,
+      grossLoss: 0,
+      lotSize: 100,
+      exposurePct: 0,
+      avgWinPct: null,
+      avgLossPct: null,
+      expectancyPct: null,
+      avgBarsHeld: null,
+      maxBarsHeld: null,
+      maxConsecWins: null,
+      maxConsecLosses: null,
+      equityCurve: [],
+      drawdownPctCurve: [],
+      cagrPct: null,
+      sharpe: null,
+      calmar: null,
+      monthlyReturns: [],
+    };
+  }
+
+  if (!bars.length || strategy === 'none') {
+    return {
+      ok: false,
+      error: '请先选择一个策略',
+      initialCapital: cap,
+      finalEquity: cap,
+      netProfit: 0,
+      netProfitPct: 0,
+      maxDrawdown: 0,
+      maxDrawdownPct: 0,
+      trades: [],
+      winRate: 0,
+      profitFactor: null,
+      avgTradePct: null,
+      buyHoldPct: null,
+      grossProfit: 0,
+      grossLoss: 0,
+      lotSize: 100,
+      exposurePct: 0,
+      avgWinPct: null,
+      avgLossPct: null,
+      expectancyPct: null,
+      avgBarsHeld: null,
+      maxBarsHeld: null,
+      maxConsecWins: null,
+      maxConsecLosses: null,
+      equityCurve: [],
+      drawdownPctCurve: [],
+      cagrPct: null,
+      sharpe: null,
+      calmar: null,
+      monthlyReturns: [],
+    };
+  }
+
+  if (bars.length < 5) {
+    return {
+      ok: false,
+      error: '数据不足，无法回测',
+      initialCapital: cap,
+      finalEquity: cap,
+      netProfit: 0,
+      netProfitPct: 0,
+      maxDrawdown: 0,
+      maxDrawdownPct: 0,
+      trades: [],
+      winRate: 0,
+      profitFactor: null,
+      avgTradePct: null,
+      buyHoldPct: null,
+      grossProfit: 0,
+      grossLoss: 0,
+      lotSize: 100,
+      exposurePct: 0,
+      avgWinPct: null,
+      avgLossPct: null,
+      expectancyPct: null,
+      avgBarsHeld: null,
+      maxBarsHeld: null,
+      maxConsecWins: null,
+      maxConsecLosses: null,
+      equityCurve: [],
+      drawdownPctCurve: [],
+      cagrPct: null,
+      sharpe: null,
+      calmar: null,
+      monthlyReturns: [],
+    };
+  }
+
+  // Map: signal at bar[i] close → execute at bar[i+1] open
+  const signals = computeStrategySignals(strategy, bars);
+  const sigByBarIndex = new Map<number, StrategySignal[]>();
+  for (const s of signals) {
+    const arr = sigByBarIndex.get(s.index) ?? [];
+    arr.push(s);
+    sigByBarIndex.set(s.index, arr);
+  }
+
+  let cash = cap;
+  let qty = 0;
+  let entryIndex = -1;
+  let entryPrice = 0;
+  let entryTime = 0;
+
+  const trades: BacktestTrade[] = [];
+  const equityCurve: number[] = [];
+  const drawdownPctCurve: number[] = [];
+  let holdBars = 0;
+
+  // iterate bars, apply execution at current bar open based on previous bar's signal
+  let peakEq = cap;
+  for (let idx = 0; idx < bars.length; idx++) {
+    if (idx > 0) {
+      const prevSig = sigByBarIndex.get(idx - 1);
+      if (prevSig && prevSig.length) {
+        // if multiple, process SELL first then BUY (safer)
+        const ordered = [...prevSig].sort((a, b) => (a.side === 'SELL' ? -1 : 1) - (b.side === 'SELL' ? -1 : 1));
+        for (const s of ordered) {
+          const px = bars[idx]?.o;
+          if (!Number.isFinite(px) || px <= 0) continue;
+
+          if (s.side === 'BUY' && qty === 0) {
+            // A-share: trade in lots (default 100 shares per lot)
+            const LOT = 100;
+            const shares = Math.floor(cash / px / LOT) * LOT;
+            if (shares <= 0) continue;
+            const cost = shares * px;
+            qty = shares;
+            cash = cash - cost;
+            entryIndex = idx;
+            entryPrice = px;
+            entryTime = bars[idx]?.t;
+          } else if (s.side === 'SELL' && qty > 0) {
+            const exitIndex = idx;
+            const exitPrice = px;
+            const exitTime = bars[idx]?.t;
+
+            const pnl = (exitPrice - entryPrice) * qty;
+            const pnlPct = entryPrice > 0 ? (exitPrice / entryPrice - 1) * 100 : 0;
+
+            trades.push({
+              entryIndex,
+              exitIndex,
+              entryTime,
+              exitTime,
+              entryPrice,
+              exitPrice,
+              pnl,
+              pnlPct,
+              barsHeld: Math.max(0, exitIndex - entryIndex),
+              open: false,
+            });
+
+            cash = cash + qty * exitPrice;
+            qty = 0;
+            entryIndex = -1;
+            entryPrice = 0;
+            entryTime = 0;
+          }
+        }
+      }
+    }
+
+    if (qty > 0) holdBars += 1;
+
+    const closePx = bars[idx]?.c;
+    const equity = cash + (qty > 0 && Number.isFinite(closePx) ? qty * closePx : 0);
+    const e = Number.isFinite(equity) ? equity : cash;
+    equityCurve.push(e);
+
+    if (e > peakEq) peakEq = e;
+    const ddPct = peakEq > 0 ? ((peakEq - e) / peakEq) * 100 : 0;
+    drawdownPctCurve.push(Number.isFinite(ddPct) ? ddPct : 0);
+  }
+
+  // Force close open position at last close for mark-to-market (so PnL is visible)
+  if (qty > 0) {
+    const last = bars[bars.length - 1];
+    const exitPrice = last?.c;
+    const exitTime = last?.t;
+    if (Number.isFinite(exitPrice) && exitPrice > 0) {
+      const pnl = (exitPrice - entryPrice) * qty;
+      const pnlPct = entryPrice > 0 ? (exitPrice / entryPrice - 1) * 100 : 0;
+      trades.push({
+        entryIndex,
+        exitIndex: bars.length - 1,
+        entryTime,
+        exitTime,
+        entryPrice,
+        exitPrice,
+        pnl,
+        pnlPct,
+        barsHeld: Math.max(0, bars.length - 1 - entryIndex),
+        open: true,
+      });
+      cash = cash + qty * exitPrice;
+      qty = 0;
+    }
+  }
+
+  const finalEquity = cash;
+
+  // Max drawdown
+  let peak = equityCurve.length ? equityCurve[0] : cap;
+  let maxDd = 0;
+  for (const v of equityCurve) {
+    if (v > peak) peak = v;
+    const dd = peak - v;
+    if (dd > maxDd) maxDd = dd;
+  }
+  const maxDdPct = peak > 0 ? (maxDd / peak) * 100 : 0;
+
+  // Profit factor, win rate, avg trade
+  let grossProfit = 0;
+  let grossLoss = 0;
+  let wins = 0;
+  let losses = 0;
+  let sumTradePct = 0;
+  for (const tr of trades) {
+    if (tr.pnl >= 0) {
+      grossProfit += tr.pnl;
+      if (!tr.open) wins += 1;
+    } else {
+      grossLoss += Math.abs(tr.pnl);
+      if (!tr.open) losses += 1;
+    }
+    sumTradePct += tr.pnlPct;
+  }
+  const closedCount = wins + losses;
+  const winRate = closedCount > 0 ? (wins / closedCount) * 100 : 0;
+  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Number.POSITIVE_INFINITY : null;
+  const avgTradePct = trades.length ? sumTradePct / trades.length : null;
+
+  // Buy & Hold % (first open → last close)
+  const firstOpen = bars[0]?.o;
+  const lastClose = bars[bars.length - 1]?.c;
+  const lotSize = 100;
+  const exposurePct = bars.length > 0 ? (holdBars / bars.length) * 100 : 0;
+
+  // Extra stats (TradingView-like, simple & stable)
+  const closedTrades = trades.filter((t) => !t.open);
+  const winsArr = closedTrades.filter((t) => t.pnlPct >= 0);
+  const lossesArr = closedTrades.filter((t) => t.pnlPct < 0);
+  const avgWinPct = winsArr.length ? winsArr.reduce((a, b) => a + b.pnlPct, 0) / winsArr.length : null;
+  const avgLossPct = lossesArr.length ? lossesArr.reduce((a, b) => a + b.pnlPct, 0) / lossesArr.length : null;
+  const expectancyPct = closedTrades.length ? closedTrades.reduce((a, b) => a + b.pnlPct, 0) / closedTrades.length : null;
+  const avgBarsHeld = closedTrades.length ? closedTrades.reduce((a, b) => a + b.barsHeld, 0) / closedTrades.length : null;
+  const maxBarsHeld = closedTrades.length ? Math.max(...closedTrades.map((t) => t.barsHeld)) : null;
+
+  let maxConsecWins: number | null = null;
+  let maxConsecLosses: number | null = null;
+  if (closedTrades.length) {
+    let cw = 0;
+    let cl = 0;
+    let mw = 0;
+    let ml = 0;
+    for (const tr of closedTrades) {
+      if (tr.pnlPct >= 0) {
+        cw += 1;
+        cl = 0;
+      } else {
+        cl += 1;
+        cw = 0;
+      }
+      if (cw > mw) mw = cw;
+      if (cl > ml) ml = cl;
+    }
+    maxConsecWins = mw;
+    maxConsecLosses = ml;
+  }
+
+  const buyHoldPct = Number.isFinite(firstOpen) && firstOpen > 0 && Number.isFinite(lastClose) ? (lastClose / firstOpen - 1) * 100 : null;
+
+  const netProfit = finalEquity - cap;
+  const netProfitPct = cap > 0 ? (finalEquity / cap - 1) * 100 : 0;
+
+  // --- Report extras (daily/monthly stats) ---
+  let cagrPct: number | null = null;
+  let sharpe: number | null = null;
+  let calmar: number | null = null;
+  let annualVolPct: number | null = null;
+  let sortino: number | null = null;
+  let recoveryFactor: number | null = null;
+  let ulcerIndex: number | null = null;
+  let maxDdDurationDays: number | null = null;
+  let maxDdDurationStart: string | null = null;
+  let maxDdDurationEnd: string | null = null;
+  let sampleStart: string | null = null;
+  let sampleEnd: string | null = null;
+  let sampleDays: number | null = null;
+  const monthlyReturns: { month: string; retPct: number }[] = [];
+
+  try {
+    const firstTs = bars[0]?.t;
+    const lastTs = bars[bars.length - 1]?.t;
+    if (Number.isFinite(firstTs) && Number.isFinite(lastTs)) {
+      const years = (lastTs - firstTs) / (365.25 * 24 * 3600);
+      if (years > 0) {
+        cagrPct = (Math.pow(finalEquity / cap, 1 / years) - 1) * 100;
+      }
+    }
+
+    // build daily equity (use last equity of the day)
+    const dayKeys: string[] = [];
+    const dayEquity: number[] = [];
+    const seen = new Set<string>();
+    let lastKey: string | null = null;
+    for (let k = 0; k < bars.length; k++) {
+      const ts = bars[k]?.t;
+      if (!Number.isFinite(ts)) continue;
+      const d = new Date(ts * 1000);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (lastKey != key) {
+        lastKey = key;
+        if (!seen.has(key)) {
+          seen.add(key);
+          dayKeys.push(key);
+          dayEquity.push(equityCurve[k]);
+        }
+      } else {
+        // same day: overwrite last
+        dayEquity[dayEquity.length - 1] = equityCurve[k];
+      }
+    }
+    // sharpe (daily)
+    const dailyR: number[] = [];
+    for (let d = 1; d < dayEquity.length; d++) {
+      const a = dayEquity[d - 1];
+      const b = dayEquity[d];
+      if (a > 0 && Number.isFinite(a) && Number.isFinite(b)) dailyR.push(b / a - 1);
+    }
+    const dailyMean = dailyR.length ? dailyR.reduce((s, x) => s + x, 0) / dailyR.length : 0;
+    const dailyStd = dailyR.length >= 5
+      ? Math.sqrt(dailyR.reduce((s, x) => s + (x - dailyMean) ** 2, 0) / (dailyR.length - 1))
+      : 0;
+    if (dailyStd > 0) sharpe = (dailyMean / dailyStd) * Math.sqrt(252);
+
+    // calmar
+    if (cagrPct != null && maxDdPct > 0) calmar = (cagrPct / 100) / (maxDdPct / 100);
+
+    // ---- Enhanced credibility metrics (based on daily equity) ----
+    // Annualized volatility (daily), Sortino ratio, drawdown duration, and recovery factor
+    annualVolPct = dailyStd > 0 ? (dailyStd * Math.sqrt(252) * 100) : 0;
+
+    const downside = dailyR.filter((r) => r < 0);
+    const downsideMean = downside.length ? downside.reduce((s, v) => s + v, 0) / downside.length : 0;
+    const downsideStd = downside.length > 1
+      ? Math.sqrt(downside.reduce((s, v) => s + Math.pow(v - downsideMean, 2), 0) / (downside.length - 1))
+      : 0;
+    sortino = downsideStd > 0 ? (dailyMean / downsideStd) * Math.sqrt(252) : (dailyMean > 0 ? Infinity : 0);
+
+    // Max drawdown duration in trading days (peak -> recovery) using daily equity
+    let peakEq = dayEquity[0] ?? 0;
+    let peakIdx = 0;
+    let inDd = false;
+    let ddStartIdx = 0;
+    let maxDdDur = 0;
+    let maxDdStart = 0;
+    let maxDdEnd = 0;
+    for (let i = 1; i < dayEquity.length; i++) {
+      const eq = dayEquity[i];
+      if (eq >= peakEq) {
+        if (inDd) {
+          const dur = i - ddStartIdx;
+          if (dur > maxDdDur) {
+            maxDdDur = dur;
+            maxDdStart = ddStartIdx;
+            maxDdEnd = i;
+          }
+          inDd = false;
+        }
+        peakEq = eq;
+        peakIdx = i;
+      } else {
+        if (!inDd) {
+          inDd = true;
+          ddStartIdx = peakIdx;
+        }
+        const dur = i - ddStartIdx;
+        if (dur > maxDdDur) {
+          maxDdDur = dur;
+          maxDdStart = ddStartIdx;
+          maxDdEnd = i;
+        }
+      }
+    }
+
+    maxDdDurationDays = maxDdDur;
+    maxDdDurationStart = dayKeys[maxDdStart] ?? '';
+    maxDdDurationEnd = dayKeys[maxDdEnd] ?? '';
+
+    recoveryFactor = maxDd > 0 ? netProfit / maxDd : Infinity;
+
+    // Ulcer index (based on drawdown percentage curve)
+    ulcerIndex = drawdownPctCurve.length
+      ? Math.sqrt(drawdownPctCurve.reduce((s, v) => s + v * v, 0) / drawdownPctCurve.length)
+      : 0;
+
+    sampleStart = dayKeys[0] ?? '';
+    sampleEnd = dayKeys[dayKeys.length - 1] ?? '';
+    sampleDays = dayKeys.length;
+
+    // monthly returns from daily equity
+    const monthFirst: Record<string, number> = {};
+    const monthLast: Record<string, number> = {};
+    for (let d = 0; d < dayKeys.length; d++) {
+      const key = dayKeys[d];
+      const m = key.slice(0, 7);
+      if (!(m in monthFirst)) monthFirst[m] = dayEquity[d];
+      monthLast[m] = dayEquity[d];
+    }
+    for (const m of Object.keys(monthLast).sort()) {
+      const f = monthFirst[m];
+      const l = monthLast[m];
+      if (f > 0 && Number.isFinite(f) && Number.isFinite(l)) monthlyReturns.push({ month: m, retPct: (l / f - 1) * 100 });
+    }
+  } catch (e) {
+    // ignore report errors
+  }
+
+  return {
+    ok: true,
+    initialCapital: cap,
+    finalEquity,
+    netProfit,
+    netProfitPct,
+    maxDrawdown: maxDd,
+    maxDrawdownPct: maxDdPct,
+    trades,
+    winRate,
+    profitFactor,
+    avgTradePct,
+    buyHoldPct,
+    grossProfit,
+    grossLoss,
+    lotSize,
+    exposurePct,
+    avgWinPct,
+    avgLossPct,
+    expectancyPct,
+    avgBarsHeld,
+    maxBarsHeld,
+    maxConsecWins,
+    maxConsecLosses,
+    equityCurve,
+    drawdownPctCurve,
+    cagrPct,
+    sharpe,
+    calmar,
+    annualVolPct,
+    sortino,
+    recoveryFactor,
+    ulcerIndex,
+    maxDdDurationDays,
+    maxDdDurationStart,
+    maxDdDurationEnd,
+    sampleStart,
+    sampleEnd,
+    sampleDays,
+    monthlyReturns,
+  };
+}
+
+
+export default function AshareKlinePanel({ symbol, title }: { symbol: string; title?: string }) {
+  const { t } = useI18n();
+
+  const tvUrl = useMemo(() => tvChartUrl(symbol), [symbol]);
+
+  const [freq, setFreq] = useState<AllowedFreq>('30m');
+  const [loading, setLoading] = useState(false);
+  const [bars, setBars] = useState<OHLCVBar[]>([]);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+
+  // Indicators
+  const [showMA5, setShowMA5] = useState(true);
+  const [showMA10, setShowMA10] = useState(true);
+  const [showMA20, setShowMA20] = useState(true);
+  const [showEMA20, setShowEMA20] = useState(false);
+  const [showBB, setShowBB] = useState(false);
+  const [showRSI, setShowRSI] = useState(false);
+  const [showMACD, setShowMACD] = useState(false);
+
+  // Strategy (A: arrows only)
+  const [strategy, setStrategy] = useState<StrategyKey>('none');
+  const [overlayMarkers, setOverlayMarkers] = useState<OverlayMarker[]>([]);
+
+  // Backtest settings (B: report)
+  const [btCapitalText, setBtCapitalText] = useState('100000');
+  const btCapital = useMemo(() => {
+    const v = Number(btCapitalText);
+    return Number.isFinite(v) && v > 0 ? v : 100000;
+  }, [btCapitalText]);
+
+  useEffect(() => {
+    const stored = safeLocalStorageGet('openstock_bt_capital_v1');
+    if (typeof stored === 'number' && Number.isFinite(stored) && stored > 0) setBtCapitalText(String(stored));
+  }, []);
+
+  useEffect(() => {
+    safeLocalStorageSet('openstock_bt_capital_v1', btCapital);
+  }, [btCapital]);
+
+  // Modal (TradingView-like)
+  const [dlgOpen, setDlgOpen] = useState(false);
+  const [dlgTab, setDlgTab] = useState<'indicators' | 'strategies' | 'backtest'>('indicators');
+  const [dlgCategory, setDlgCategory] = useState<'全部' | '趋势' | '震荡' | '波动'>('全部');
+  const [dlgQuery, setDlgQuery] = useState('');
+  const [favorites, setFavorites] = useState<Record<string, boolean>>({});
+
+  const mainContainerRef = useRef<HTMLDivElement | null>(null);
+  const rsiContainerRef = useRef<HTMLDivElement | null>(null);
+  const macdContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const chartRef = useRef<any>(null);
+  const candleSeriesRef = useRef<any>(null);
+  const volumeSeriesRef = useRef<any>(null);
+
+  const ma5SeriesRef = useRef<any>(null);
+  const ma10SeriesRef = useRef<any>(null);
+  const ma20SeriesRef = useRef<any>(null);
+  const ema20SeriesRef = useRef<any>(null);
+
+  const bbUpperSeriesRef = useRef<any>(null);
+  const bbMidSeriesRef = useRef<any>(null);
+  const bbLowerSeriesRef = useRef<any>(null);
+
+  const rsiChartRef = useRef<any>(null);
+  const rsiSeriesRef = useRef<any>(null);
+  const rsiLinesAddedRef = useRef(false);
+
+  const macdChartRef = useRef<any>(null);
+  const macdLineSeriesRef = useRef<any>(null);
+  const macdSignalSeriesRef = useRef<any>(null);
+  const macdHistSeriesRef = useRef<any>(null);
+
+  const chartsEpochRef = useRef(0);
+  const bumpChartsEpoch = () => {
+    chartsEpochRef.current += 1;
+    setChartsEpoch(chartsEpochRef.current);
+  };
+  const [chartsEpoch, setChartsEpoch] = useState(0);
+
+  useEffect(() => {
+    const stored = safeLocalStorageGet('openstock_tv_favs_v1');
+    if (stored && typeof stored === 'object') setFavorites(stored);
+  }, []);
+
+  useEffect(() => {
+    safeLocalStorageSet('openstock_tv_favs_v1', favorites);
+  }, [favorites]);
+
+  const derived = useMemo(() => {
+    const closes = bars.map((b) => b.c);
+    const ma5 = sma(closes, 5);
+    const ma10 = sma(closes, 10);
+    const ma20 = sma(closes, 20);
+    const r14 = rsi(closes, 14);
+
+    const lastClose = closes.length ? closes[closes.length - 1] : null;
+    const prevClose = closes.length >= 2 ? closes[closes.length - 2] : null;
+    const change = lastClose != null && prevClose != null ? lastClose - prevClose : null;
+    const pct = lastClose != null && prevClose != null && prevClose !== 0 ? (change! / prevClose) * 100 : null;
+
+    return {
+      lastClose,
+      change,
+      pct,
+      ma5: lastFinite(ma5),
+      ma10: lastFinite(ma10),
+      ma20: lastFinite(ma20),
+      rsi14: lastFinite(r14),
+    };
+  }, [bars]);
+
+  const indicatorData = useMemo(() => {
+    const closes = bars.map((b) => b.c);
+
+    const ma5Arr = sma(closes, 5);
+    const ma10Arr = sma(closes, 10);
+    const ma20Arr = sma(closes, 20);
+    const ema20Arr = ema(closes, 20);
+
+    const bb = bollingerBands(closes, 20, 2);
+    const r14Arr = rsi(closes, 14);
+
+    const m = macd(closes, 12, 26, 9);
+
+    const toLine = (arr: Array<number | null>) =>
+      bars
+        .map((b, i) => {
+          const v = arr[i] as number;
+          if (v == null || !Number.isFinite(v)) return null;
+          return { time: b.t, value: v };
+        })
+        .filter(Boolean) as Array<{ time: number; value: number }>;
+
+    const toHist = (arr: number[]) =>
+      bars
+        .map((b, i) => {
+          const v = arr[i];
+          if (!Number.isFinite(v)) return null;
+          return {
+            time: b.t,
+            value: v,
+            color: v >= 0 ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.6)',
+          };
+        })
+        .filter(Boolean) as Array<{ time: number; value: number; color: string }>;
+
+    return {
+      ma5: toLine(ma5Arr),
+      ma10: toLine(ma10Arr),
+      ma20: toLine(ma20Arr),
+      ema20: toLine(ema20Arr),
+      bbUpper: toLine(bb.upper),
+      bbMid: toLine(bb.mid),
+      bbLower: toLine(bb.lower),
+      rsi14: toLine(r14Arr),
+      macd: toLine(m.macd),
+      macdSignal: toLine(m.signal),
+      macdHist: toHist(m.hist),
+    };
+  }, [bars]);
+
+  const strategyCalc = useMemo(() => buildStrategyMarkers(strategy, bars), [strategy, bars]);
+  const backtest = useMemo(() => runBacktestNextOpen(strategy, bars, btCapital), [strategy, bars, btCapital]);
+
+  const changeClass =
+    derived.change == null
+      ? 'text-gray-300'
+      : derived.change > 0
+        ? 'text-red-500'
+        : derived.change < 0
+          ? 'text-green-500'
+          : 'text-gray-300';
+
+  // Fetch bars
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      const url = `/api/ashare/bars?symbol=${encodeURIComponent(symbol)}&freq=${encodeURIComponent(freq)}&limit=1200`;
+      console.log(`[bars] fetching symbol=${symbol} freq=${freq}`);
+
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          console.error(`[bars] API HTTP ${res.status} ${res.statusText}`, text);
+          if (cancelled) return;
+          setBars([]);
+          setUpdatedAt(null);
+          return;
+        }
+
+        const json = await res.json();
+        const count = json?.count ?? json?.bars?.length ?? 0;
+        console.log(`[bars] fetched ok=${json?.ok} count=${count}`);
+
+        const rawBars = (json?.bars ?? []) as any[];
+        const mapped: OHLCVBar[] = rawBars
+          .map((b) => {
+            const t0 = b.t;
+            const t = typeof t0 === 'number' ? (t0 > 1e12 ? Math.floor(t0 / 1000) : Math.floor(t0)) : NaN;
+            return {
+              t,
+              o: Number(b.o),
+              h: Number(b.h),
+              l: Number(b.l),
+              c: Number(b.c),
+              v: Number(b.v ?? 0),
+            };
+          })
+          .filter((b) => Number.isFinite(b.t) && Number.isFinite(b.o) && Number.isFinite(b.h) && Number.isFinite(b.l) && Number.isFinite(b.c));
+
+        const bad = mapped.slice(0, 5).filter((b) => !Number.isFinite(b.t));
+        if (bad.length) console.error('[bars] BAD timestamp sample:', bad);
+
+        if (cancelled) return;
+        setBars(mapped);
+        setUpdatedAt(new Date().toLocaleString());
+      } catch (e: any) {
+        console.error('[bars] fetch error', e);
+        if (cancelled) return;
+        setBars([]);
+        setUpdatedAt(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol, freq]);
+
+  // Init main chart
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+
+    async function init() {
+      if (!mainContainerRef.current) return;
+
+      const { createChart, CandlestickSeries, HistogramSeries } = await import('lightweight-charts');
+
+      // Dispose old
+      if (chartRef.current) {
+        try {
+          chartRef.current.remove();
+        } catch (e) {}
+        chartRef.current = null;
+        candleSeriesRef.current = null;
+        volumeSeriesRef.current = null;
+      }
+
+      const chart = createChart(mainContainerRef.current, {
+        autoSize: true,
+        handleScroll: {
+          mouseWheel: true,
+          pressedMouseMove: true,
+          horzTouchDrag: true,
+          vertTouchDrag: true,
+        },
+        handleScale: {
+          axisPressedMouseMove: {
+            time: true,
+            price: true,
+          },
+          mouseWheel: true,
+          pinch: true,
+        },
+        layout: {
+          background: { color: '#0d0d0d' },
+          textColor: 'rgba(255,255,255,0.75)',
+        },
+        grid: {
+          vertLines: { color: 'rgba(255,255,255,0.06)' },
+          horzLines: { color: 'rgba(255,255,255,0.06)' },
+        },
+        crosshair: {
+          vertLine: { color: 'rgba(255,255,255,0.25)', width: 1 },
+          horzLine: { color: 'rgba(255,255,255,0.25)', width: 1 },
+        },
+        rightPriceScale: {
+          borderColor: 'rgba(255,255,255,0.08)',
+        },
+        timeScale: {
+          borderColor: 'rgba(255,255,255,0.08)',
+        },
+      });
+
+      const candles = chart.addSeries(CandlestickSeries, {
+        upColor: '#ef4444',
+        downColor: '#22c55e',
+        borderUpColor: '#ef4444',
+        borderDownColor: '#22c55e',
+        wickUpColor: '#ef4444',
+        wickDownColor: '#22c55e',
+      });
+
+      const volume = chart.addSeries(HistogramSeries, {
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'volume',
+      });
+      volume.priceScale().applyOptions({
+        scaleMargins: {
+          top: 0.8,
+          bottom: 0,
+        },
+      });
+
+      chartRef.current = chart;
+      candleSeriesRef.current = candles;
+      volumeSeriesRef.current = volume;
+
+      // Prevent any embedded anchor inside the chart container from hijacking clicks
+      // (e.g., lightweight-charts attribution link in some builds).
+      const el = mainContainerRef.current;
+      const onClickCapture = (e: MouseEvent) => {
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+        const a = target.closest?.('a');
+        if (a) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      };
+      const onWheelCapture = (e: WheelEvent) => {
+        // Keep wheel for chart zoom, prevent page scroll
+        if (e.ctrlKey) return;
+        e.preventDefault();
+      };
+      el.addEventListener('click', onClickCapture, { capture: true } as any);
+      el.addEventListener('wheel', onWheelCapture, { capture: true, passive: false } as any);
+
+      cleanup = () => {
+        el.removeEventListener('click', onClickCapture, { capture: true } as any);
+        el.removeEventListener('wheel', onWheelCapture, { capture: true } as any);
+      };
+
+      bumpChartsEpoch();
+    }
+
+    init();
+    return () => {
+      cleanup?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Init / destroy RSI chart
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+
+    async function initRSI() {
+      if (!showRSI) {
+        if (rsiChartRef.current) {
+          try {
+            rsiChartRef.current.remove();
+          } catch (e) {}
+          rsiChartRef.current = null;
+          rsiSeriesRef.current = null;
+          rsiLinesAddedRef.current = false;
+          bumpChartsEpoch();
+        }
+        return;
+      }
+      if (!rsiContainerRef.current || rsiChartRef.current) return;
+
+      const { createChart, LineSeries } = await import('lightweight-charts');
+
+      const chart = createChart(rsiContainerRef.current, {
+        autoSize: true,
+        handleScroll: { mouseWheel: true, pressedMouseMove: true },
+        handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true } },
+        layout: {
+          background: { color: '#0d0d0d' },
+          textColor: 'rgba(255,255,255,0.65)',
+        },
+        grid: {
+          vertLines: { color: 'rgba(255,255,255,0.06)' },
+          horzLines: { color: 'rgba(255,255,255,0.06)' },
+        },
+        crosshair: {
+          vertLine: { color: 'rgba(255,255,255,0.20)', width: 1 },
+          horzLine: { color: 'rgba(255,255,255,0.20)', width: 1 },
+        },
+        rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
+        timeScale: { visible: false, borderColor: 'rgba(255,255,255,0.08)' },
+      });
+
+      const line = chart.addSeries(LineSeries, {
+        lineWidth: 2,
+        color: 'rgba(59,130,246,0.9)',
+        priceLineVisible: false,
+        lastValueVisible: true,
+      });
+
+      rsiChartRef.current = chart;
+      rsiSeriesRef.current = line;
+
+      cleanup = () => {
+        // nothing additional
+      };
+
+      bumpChartsEpoch();
+    }
+
+    initRSI();
+    return () => cleanup?.();
+  }, [showRSI]);
+
+  // Init / destroy MACD chart
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+
+    async function initMACD() {
+      if (!showMACD) {
+        if (macdChartRef.current) {
+          try {
+            macdChartRef.current.remove();
+          } catch (e) {}
+          macdChartRef.current = null;
+          macdLineSeriesRef.current = null;
+          macdSignalSeriesRef.current = null;
+          macdHistSeriesRef.current = null;
+          bumpChartsEpoch();
+        }
+        return;
+      }
+      if (!macdContainerRef.current || macdChartRef.current) return;
+
+      const { createChart, LineSeries, HistogramSeries } = await import('lightweight-charts');
+
+      const chart = createChart(macdContainerRef.current, {
+        autoSize: true,
+        handleScroll: { mouseWheel: true, pressedMouseMove: true },
+        handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true } },
+        layout: {
+          background: { color: '#0d0d0d' },
+          textColor: 'rgba(255,255,255,0.65)',
+        },
+        grid: {
+          vertLines: { color: 'rgba(255,255,255,0.06)' },
+          horzLines: { color: 'rgba(255,255,255,0.06)' },
+        },
+        crosshair: {
+          vertLine: { color: 'rgba(255,255,255,0.20)', width: 1 },
+          horzLine: { color: 'rgba(255,255,255,0.20)', width: 1 },
+        },
+        rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
+        timeScale: { visible: false, borderColor: 'rgba(255,255,255,0.08)' },
+      });
+
+      const hist = chart.addSeries(HistogramSeries, {
+        priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+        priceScaleId: 'right',
+      });
+
+      const macdLine = chart.addSeries(LineSeries, {
+        lineWidth: 2,
+        color: 'rgba(168,85,247,0.9)',
+        priceLineVisible: false,
+        lastValueVisible: true,
+      });
+
+      const signalLine = chart.addSeries(LineSeries, {
+        lineWidth: 2,
+        color: 'rgba(234,179,8,0.9)',
+        priceLineVisible: false,
+        lastValueVisible: true,
+      });
+
+      macdChartRef.current = chart;
+      macdHistSeriesRef.current = hist;
+      macdLineSeriesRef.current = macdLine;
+      macdSignalSeriesRef.current = signalLine;
+
+      cleanup = () => {
+        // nothing additional
+      };
+
+      bumpChartsEpoch();
+    }
+
+    initMACD();
+    return () => cleanup?.();
+  }, [showMACD]);
+
+  // Sync visible time range across charts (TradingView-like feel)
+  useEffect(() => {
+    const charts = [chartRef.current, showRSI ? rsiChartRef.current : null, showMACD ? macdChartRef.current : null].filter(Boolean);
+    if (charts.length < 2) return;
+
+    let syncing = false;
+    const unsubs: Array<() => void> = [];
+
+    for (const src of charts) {
+      const cb = (range: any) => {
+        if (!range) return;
+        if (syncing) return;
+        syncing = true;
+        for (const dst of charts) {
+          if (dst === src) continue;
+          try {
+            dst.timeScale().setVisibleRange(range);
+          } catch (e) {}
+        }
+        syncing = false;
+      };
+
+      try {
+        src.timeScale().subscribeVisibleTimeRangeChange(cb);
+        unsubs.push(() => src.timeScale().unsubscribeVisibleTimeRangeChange(cb));
+      } catch (e) {}
+    }
+
+    return () => unsubs.forEach((fn) => fn());
+  }, [chartsEpoch, showRSI, showMACD]);
+
+  // Overlay indicator series (MA/EMA/BBANDS)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function syncOverlay() {
+      const chart = chartRef.current;
+      if (!chart) return;
+
+      const { LineSeries } = await import('lightweight-charts');
+      if (cancelled) return;
+
+      const ensure = (ref: React.MutableRefObject<any>, opts: any) => {
+        if (ref.current) return ref.current;
+        ref.current = chart.addSeries(LineSeries, {
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          ...opts,
+        });
+        return ref.current;
+      };
+
+      const remove = (ref: React.MutableRefObject<any>) => {
+        if (!ref.current) return;
+        try {
+          chart.removeSeries(ref.current);
+        } catch (e) {}
+        ref.current = null;
+      };
+
+      // MA
+      if (showMA5) ensure(ma5SeriesRef, { color: 'rgba(59,130,246,0.9)' }).setData(indicatorData.ma5);
+      else remove(ma5SeriesRef);
+
+      if (showMA10) ensure(ma10SeriesRef, { color: 'rgba(234,179,8,0.9)' }).setData(indicatorData.ma10);
+      else remove(ma10SeriesRef);
+
+      if (showMA20) ensure(ma20SeriesRef, { color: 'rgba(168,85,247,0.9)' }).setData(indicatorData.ma20);
+      else remove(ma20SeriesRef);
+
+      // EMA
+      if (showEMA20) ensure(ema20SeriesRef, { color: 'rgba(34,197,94,0.9)', lineStyle: 2 }).setData(indicatorData.ema20);
+      else remove(ema20SeriesRef);
+
+      // BBANDS
+      if (showBB) {
+        ensure(bbUpperSeriesRef, { color: 'rgba(148,163,184,0.75)', lineWidth: 1 }).setData(indicatorData.bbUpper);
+        ensure(bbMidSeriesRef, { color: 'rgba(148,163,184,0.55)', lineWidth: 1, lineStyle: 2 }).setData(indicatorData.bbMid);
+        ensure(bbLowerSeriesRef, { color: 'rgba(148,163,184,0.75)', lineWidth: 1 }).setData(indicatorData.bbLower);
+      } else {
+        remove(bbUpperSeriesRef);
+        remove(bbMidSeriesRef);
+        remove(bbLowerSeriesRef);
+      }
+    }
+
+    syncOverlay();
+    return () => {
+      cancelled = true;
+    };
+  }, [indicatorData, showMA5, showMA10, showMA20, showEMA20, showBB]);
+
+  // Main chart data + strategy markers
+  useEffect(() => {
+    let cancelled = false;
+
+    // Strategy markers are rendered via a lightweight DOM overlay (no plugin required).
+
+    async function sync() {
+      try {
+        const candles = candleSeriesRef.current;
+        const volume = volumeSeriesRef.current;
+        if (!candles || !volume) return;
+
+        const candleData = bars.map((b) => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c }));
+        const volumeData = bars.map((b) => ({
+          time: b.t,
+          value: b.v,
+          color: b.c >= b.o ? 'rgba(239,68,68,0.6)' : 'rgba(34,197,94,0.6)',
+        }));
+
+        candles.setData(candleData);
+        volume.setData(volumeData);
+
+        if (!cancelled) chartRef.current?.timeScale()?.fitContent?.();
+      } catch (e) {}
+    }
+
+    void sync();
+    return () => {
+      cancelled = true;
+    };
+}, [bars, strategyCalc, chartsEpoch]);
+
+
+// =========================
+// Strategy markers overlay (A: arrows with BUY/SELL labels)
+// =========================
+useEffect(() => {
+  const chart = chartRef.current;
+  const candles = candleSeriesRef.current;
+  if (!chart || !candles) return;
+
+  const timeScale = chart.timeScale();
+
+  const barsByTime = new Map<number, OHLCVBar>();
+  for (const b of bars) barsByTime.set(b.t, b);
+
+  let raf = 0;
+  const calc = () => {
+    raf = 0;
+
+    // Clamp markers within container to avoid labels rendering outside.
+    const rect = mainContainerRef.current?.getBoundingClientRect();
+    const maxY = rect?.height ?? 0;
+
+    const next: OverlayMarker[] = [];
+    const markers = (strategyCalc.markers ?? []) as Marker[];
+
+    for (let i = 0; i < markers.length; i++) {
+      const m = markers[i];
+      const t = Number((m as any).time);
+      if (!Number.isFinite(t)) continue;
+
+      const x = timeScale.timeToCoordinate(t as any);
+      if (x == null) continue;
+
+      const bar = barsByTime.get(t);
+      const basePrice = bar ? (m.position === 'aboveBar' ? bar.h : bar.l) : null;
+
+      const y0 = basePrice != null ? candles.priceToCoordinate(basePrice) : null;
+      if (y0 == null) continue;
+
+      const y = m.position === 'aboveBar' ? y0 - 18 : y0 + 18;
+
+      if (maxY && (y < 0 || y > maxY)) continue;
+
+      next.push({
+        ...(m as any),
+        x,
+        y,
+        side: (m.side ?? ((typeof m.text === 'string' && (m.text.includes('卖') || m.text.toUpperCase().includes('SELL'))) ? 'SELL' : 'BUY')) as 'BUY' | 'SELL',
+        key: `${t}-${m.text}-${i}`,
+      });
+    }
+
+    setOverlayMarkers(next);
+  };
+
+  const schedule = () => {
+    if (raf) return;
+    raf = window.requestAnimationFrame(calc);
+  };
+
+  schedule();
+  timeScale.subscribeVisibleTimeRangeChange(schedule);
+  timeScale.subscribeVisibleLogicalRangeChange(schedule);
+  window.addEventListener('resize', schedule);
+
+  return () => {
+    timeScale.unsubscribeVisibleTimeRangeChange(schedule);
+    timeScale.unsubscribeVisibleLogicalRangeChange(schedule);
+    window.removeEventListener('resize', schedule);
+    if (raf) window.cancelAnimationFrame(raf);
+  };
+}, [bars, strategyCalc, chartsEpoch]);
+
+// RSI data
+  useEffect(() => {
+    if (!showRSI) return;
+    try {
+      const s = rsiSeriesRef.current;
+      if (!s) return;
+      s.setData(indicatorData.rsi14);
+
+      if (!rsiLinesAddedRef.current) {
+        try {
+          s.createPriceLine({ price: 70, color: 'rgba(255,255,255,0.18)', lineWidth: 1, lineStyle: 2 });
+          s.createPriceLine({ price: 30, color: 'rgba(255,255,255,0.18)', lineWidth: 1, lineStyle: 2 });
+        } catch (e) {}
+        rsiLinesAddedRef.current = true;
+      }
+    } catch (e) {}
+  }, [showRSI, indicatorData]);
+
+  // MACD data
+  useEffect(() => {
+    if (!showMACD) return;
+    try {
+      macdHistSeriesRef.current?.setData?.(indicatorData.macdHist);
+      macdLineSeriesRef.current?.setData?.(indicatorData.macd);
+      macdSignalSeriesRef.current?.setData?.(indicatorData.macdSignal);
+    } catch (e) {}
+  }, [showMACD, indicatorData]);
+
+  const resetAll = () => {
+    setFreq('30m');
+    setShowMA5(true);
+    setShowMA10(true);
+    setShowMA20(true);
+    setShowEMA20(false);
+    setShowBB(false);
+    setShowRSI(false);
+    setShowMACD(false);
+    setStrategy('none');
+  };
+
+  const enabledIndicators: IndicatorKey[] = useMemo(() => {
+    const out: IndicatorKey[] = [];
+    if (showMA5) out.push('ma5');
+    if (showMA10) out.push('ma10');
+    if (showMA20) out.push('ma20');
+    if (showEMA20) out.push('ema20');
+    if (showBB) out.push('bbands');
+    if (showRSI) out.push('rsi14');
+    if (showMACD) out.push('macd');
+    return out;
+  }, [showMA5, showMA10, showMA20, showEMA20, showBB, showRSI, showMACD]);
+
+  const toggleIndicator = (k: IndicatorKey) => {
+    if (k === 'ma5') return setShowMA5((v) => !v);
+    if (k === 'ma10') return setShowMA10((v) => !v);
+    if (k === 'ma20') return setShowMA20((v) => !v);
+    if (k === 'ema20') return setShowEMA20((v) => !v);
+    if (k === 'bbands') return setShowBB((v) => !v);
+    if (k === 'rsi14') return setShowRSI((v) => !v);
+    if (k === 'macd') return setShowMACD((v) => !v);
+  };
+
+  const sortedIndicatorItems = useMemo(() => {
+    const q = dlgQuery.trim().toLowerCase();
+    const items = INDICATOR_OPTIONS.filter((it) => {
+      const catOk = dlgCategory === '全部' || it.category === dlgCategory;
+      const qOk = !q || it.name.toLowerCase().includes(q) || it.desc.toLowerCase().includes(q);
+      return catOk && qOk;
+    });
+
+    const score = (it: (typeof INDICATOR_OPTIONS)[number]) => {
+      const fav = favorites[`ind:${it.key}`] ? 1 : 0;
+      const enabled = enabledIndicators.includes(it.key) ? 1 : 0;
+      return fav * 100 + enabled * 10;
+    };
+
+    return items.sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name));
+  }, [dlgCategory, dlgQuery, enabledIndicators, favorites]);
+
+  const strategySummaryMap = useMemo(() => {
+    const map: Record<string, { winRate: number; tradeCount: number }> = {};
+    if (!bars || bars.length < 30) return map;
+
+    for (const it of STRATEGY_OPTIONS) {
+      if (it.key === 'none') continue;
+      const r = runBacktestNextOpen(it.key, bars, btCapital);
+      if (r.ok) {
+        // Use *closed* trades count because winRate is based on closed trades
+        const closed = r.trades.filter((t) => !t.open).length;
+        map[it.key] = { winRate: r.winRate, tradeCount: closed };
+      } else {
+        map[it.key] = { winRate: Number.NaN, tradeCount: 0 };
+      }
+    }
+
+    return map;
+  }, [bars, btCapital]);
+
+  const sortedStrategyItems = useMemo(() => {
+    const q = dlgQuery.trim().toLowerCase();
+    const items = STRATEGY_OPTIONS.filter((it) => {
+      if (!q) return true;
+      return it.label.toLowerCase().includes(q) || (it.note ?? '').toLowerCase().includes(q);
+    });
+
+    // Keep "无策略" pinned at top, others sorted by backtest win rate (current freq)
+    const none = items.find((it) => it.key === 'none');
+    const rest = items.filter((it) => it.key !== 'none');
+
+    const getWin = (k: StrategyKey) => {
+      const s = strategySummaryMap[k];
+      if (!s) return -1;
+      if (s.tradeCount <= 0) return -1;
+      return Number.isFinite(s.winRate) ? s.winRate : -1;
+    };
+    const getTrades = (k: StrategyKey) => strategySummaryMap[k]?.tradeCount ?? 0;
+
+    rest.sort((a, b) => {
+      const aw = getWin(a.key);
+      const bw = getWin(b.key);
+      if (bw !== aw) return bw - aw;
+      const at = getTrades(a.key);
+      const bt = getTrades(b.key);
+      if (bt !== at) return bt - at;
+      return a.label.localeCompare(b.label);
+    });
+
+    return none ? [none, ...rest] : rest;
+  }, [dlgQuery, strategySummaryMap]);
+
+  const strategyRankMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    let r = 0;
+    for (const it of sortedStrategyItems) {
+      if (it.key === 'none') continue;
+      r += 1;
+      map[it.key] = r;
+    }
+    return map;
+  }, [sortedStrategyItems]);
+
+
+  const openIndicators = () => {
+    setDlgTab('indicators');
+    setDlgOpen(true);
+  };
+
+  const openStrategies = () => {
+    setDlgTab('strategies');
+    setDlgOpen(true);
+  };
+
+  const openBacktest = () => {
+    setDlgTab('backtest');
+    setDlgOpen(true);
+  };
+
+  const mainHeight = showRSI || showMACD ? 420 : 540;
+  const paneHeight = 140;
+
+  return (
+    <div className="rounded-2xl border border-white/5 bg-[#0d0d0d] overflow-hidden">
+      {/* Header */}
+      <div className="px-5 pt-5 pb-3 flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-lg font-semibold text-white truncate">{title || symbol}</div>
+            <div className="mt-1 text-xs text-gray-400">{t('ashare.dataSourceHint')}</div>
+          </div>
+
+          <a
+            href={tvUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 text-gray-200"
+            title={t('btn.openTradingView')}
+          >
+            TradingView <span aria-hidden>↗</span>
+          </a>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-baseline gap-3">
+            <div className="text-3xl font-semibold text-white">{fmt(derived.lastClose)}</div>
+            <div className={cn('text-sm font-medium', changeClass)}>
+              {derived.change == null ? '--' : `${derived.change > 0 ? '+' : ''}${fmt(derived.change)} (${derived.pct != null ? `${derived.pct > 0 ? '+' : ''}${fmt(derived.pct, 2)}%` : '--'})`}
+            </div>
+            <div className="text-xs text-gray-500">{updatedAt ? `更新：${updatedAt}` : ''}</div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Freq buttons */}
+            <div className="flex items-center gap-1">
+              {FREQ_OPTIONS.map((o) => (
+                <Button
+                  key={o.key}
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={loading || !!o.disabled}
+                  onClick={() => setFreq(o.key)}
+                  className={cn(
+                    'rounded-full bg-white/5 text-gray-200 hover:bg-white/10',
+                    freq === o.key && 'bg-white/15 text-white'
+                  )}
+                >
+                  {t(o.labelKey)}
+                </Button>
+              ))}
+            </div>
+
+            <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={openIndicators} className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')}>
+              指标
+            </Button>
+
+            <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={openStrategies} className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')}>
+              策略
+            </Button>
+
+            <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={openBacktest} className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')}>
+              回测
+            </Button>
+
+            <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={resetAll} className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')}>
+              重置
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Chart area */}
+      <div className="relative">
+        <div className="relative px-4 pb-4">
+          <div className="relative" style={{ height: mainHeight }}>
+            <div ref={mainContainerRef} className="w-full h-full" />
+
+            {/* Strategy markers overlay (DOM layer) */}
+            {strategy !== 'none' && overlayMarkers.length > 0 && (
+              // NOTE: lightweight-charts uses multiple canvases with z-index.
+              // If we don't set a higher z-index here, the DOM overlay can be hidden behind the canvases.
+              <div className="pointer-events-none absolute inset-0 z-20">
+                                {overlayMarkers.map((m) => {
+                  const isSell = (m.side ?? (typeof m.text === 'string' && (m.text.includes('卖') || m.text.toUpperCase().includes('SELL')) ? 'SELL' : 'BUY')) === 'SELL';
+                  return (
+                    <div
+                      key={`${m.time}-${m.side}-${m.price}`}
+                      className={`absolute z-50 whitespace-nowrap rounded bg-black/70 border border-white/10 px-2 py-1 text-xs ${isSell ? 'text-emerald-300' : 'text-red-300'}`}
+                      style={{ left: m.x, top: m.y, transform: 'translate(-50%, -100%)' }}
+                    >
+                      <span className="mr-1">{isSell ? '▼' : '▲'}</span>
+                      {isSell ? '卖出' : '买入'}
+                    </div>
+                  );
+                })}
+
+              </div>
+            )}
+          </div>
+          {showRSI && <div style={{ height: paneHeight }} ref={rsiContainerRef} className="w-full mt-2" />}
+          {showMACD && <div style={{ height: paneHeight }} ref={macdContainerRef} className="w-full mt-2" />}
+        </div>
+      </div>
+
+      {/* Footer cards */}
+      <div className="px-5 pb-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="rounded-xl bg-white/5 border border-white/5 p-4">
+          <div className="text-xs text-gray-400">MA5 / MA10 / MA20</div>
+          <div className="mt-2 text-sm text-gray-100">
+            {fmt(derived.ma5)} / {fmt(derived.ma10)} / {fmt(derived.ma20)}
+          </div>
+        </div>
+        <div className="rounded-xl bg-white/5 border border-white/5 p-4">
+          <div className="text-xs text-gray-400">RSI14</div>
+          <div className="mt-2 text-sm text-gray-100">{fmt(derived.rsi14, 1)}</div>
+        </div>
+        <div className="rounded-xl bg-white/5 border border-white/5 p-4">
+          <div className="text-xs text-gray-400">策略</div>
+          <div className="mt-2 text-sm text-gray-100">{STRATEGY_OPTIONS.find((s) => s.key === strategy)?.label ?? strategy}</div>
+          <div className="mt-1 text-xs text-gray-500">{strategyCalc.status ?? '选择一个策略以显示 买入/卖出 信号（可在弹窗查看回测）'}</div>
+          {strategy !== 'none' && strategySummaryMap[strategy] && (
+            <div className="mt-1 text-xs text-gray-500">
+              胜率 {strategySummaryMap[strategy].tradeCount > 0 && Number.isFinite(strategySummaryMap[strategy].winRate) ? `${fmt(strategySummaryMap[strategy].winRate, 2)}%` : '--'}
+              <span className="mx-2 text-gray-600">·</span>
+              交易次数 {strategySummaryMap[strategy].tradeCount}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* TradingView-like Dialog */}
+      <Dialog open={dlgOpen} onOpenChange={setDlgOpen}>
+        {/*
+          Fix scrolling for 指标 / 策略 / 回测:
+          - Make the dialog root a flex container with overflow hidden
+          - Keep header/search as shrink-0
+          - Let the main content area (flex-1 + min-h-0) handle scrolling internally
+        */}
+        <DialogContent className="w-[90vw] h-[90vh] max-w-[90vw] sm:max-w-[90vw] max-h-[90vh] sm:max-h-[90vh] p-0 bg-[#0b0b0b] border border-white/10 flex flex-col overflow-hidden">
+          <div className="flex flex-col flex-1 min-h-0">
+          <DialogHeader className="px-4 pt-4 pb-2 shrink-0">
+            <DialogTitle className="text-white text-base">指标、衡量标准和策略</DialogTitle>
+          </DialogHeader>
+
+          <div className="px-4 pb-4 shrink-0">
+            <Input
+              value={dlgQuery}
+              onChange={(e) => setDlgQuery(e.target.value)}
+              placeholder="搜索"
+              className="bg-white/5 border-white/10 text-gray-200 placeholder:text-gray-500"
+            />
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setDlgTab('indicators')}
+                className={cn(
+                  'px-3 py-1.5 rounded-full text-sm border border-white/10',
+                  dlgTab === 'indicators' ? 'bg-white/10 text-white' : 'bg-transparent text-gray-300 hover:bg-white/5'
+                )}
+              >
+                指标
+              </button>
+              <button
+                type="button"
+                onClick={() => setDlgTab('strategies')}
+                className={cn(
+                  'px-3 py-1.5 rounded-full text-sm border border-white/10',
+                  dlgTab === 'strategies' ? 'bg-white/10 text-white' : 'bg-transparent text-gray-300 hover:bg-white/5'
+                )}
+              >
+                策略
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDlgTab('backtest')}
+                className={cn(
+                  'px-3 py-1.5 rounded-full text-sm border border-white/10',
+                  dlgTab === 'backtest' ? 'bg-white/10 text-white' : 'bg-transparent text-gray-300 hover:bg-white/5'
+                )}
+              >
+                回测
+              </button>
+
+              <div className="ml-auto text-xs text-gray-500">提示：启用后立即作用于左侧 K 线图</div>
+            </div>
+          </div>
+
+          <div className="flex flex-1 min-h-0 border-t border-white/10 overflow-hidden">
+            {/* Sidebar */}
+            <div className="w-72 shrink-0 border-r border-white/10 p-3 overflow-auto min-h-0">
+          {dlgTab === 'indicators' ? (
+                <div className="space-y-1">
+                  {(['全部', '趋势', '震荡', '波动'] as const).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setDlgCategory(c)}
+                      className={cn(
+                        'w-full text-left px-3 py-2 rounded-lg text-sm',
+                        dlgCategory === c ? 'bg-white/10 text-white' : 'text-gray-300 hover:bg-white/5'
+                      )}
+                    >
+                      {c === '全部' ? '技术指标' : c}
+                    </button>
+                  ))}
+                </div>
+              )
+              : dlgTab === 'strategies' ? (
+                <div className="space-y-1">
+                  <div className="w-full text-left px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-gray-200">策略</div>
+                  <div className="px-3 text-xs text-gray-400">当前版本：绘制 买入/卖出 信号；回测见“回测”页</div>
+                  <div className="px-3 text-xs text-gray-500">提示：启用后立即作用于左侧 K 线图；排序/胜率按当前周期（freq）</div>
+                </div>
+              )
+              : (
+                <div className="space-y-3">
+                  <div className="w-full text-left px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-gray-200">回测</div>
+
+                  <div className="space-y-2">
+                    <div className="px-1 text-xs text-gray-400">策略（按胜率排序；显示：胜率 + 交易次数）</div>
+                    <div className="space-y-1">
+                      {sortedStrategyItems.map((it) => {
+                        const enabled = strategy === it.key;
+                        const rank = it.key === 'none' ? null : strategyRankMap[it.key];
+                        const sum = it.key === 'none' ? null : strategySummaryMap[it.key];
+                        const wr =
+                          sum && sum.tradeCount > 0 && Number.isFinite(sum.winRate) ? `${fmt(sum.winRate, 2)}%` : '--';
+                        const trN = sum ? sum.tradeCount : 0;
+
+                        return (
+                          <button
+                            key={it.key}
+                            type="button"
+                            onClick={() => setStrategy(it.key)}
+                            className={cn(
+                              'w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left',
+                              enabled ? 'border-white/20 bg-white/10' : 'border-white/10 bg-transparent hover:bg-white/5'
+                            )}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 min-w-0">
+                                {rank != null && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-300">#{rank}</span>
+                                )}
+                                <span className="text-xs text-gray-200 truncate">{it.label}</span>
+                              </div>
+
+                              {it.key !== 'none' && (
+                                <div className="mt-1 text-[11px] text-gray-400">
+                                  胜率 {wr}
+                                  <span className="mx-2 text-gray-600">·</span>
+                                  交易 {trN}
+                                </div>
+                              )}
+                            </div>
+
+                            {enabled && <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-gray-200">当前</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="px-3 text-xs text-gray-400">成交模型：下一根开盘成交（next open）</div>
+                    <div className="px-3 text-xs text-gray-500">默认成本：0；一手=100</div>
+                    <div className="px-3 text-[11px] text-gray-600">排序依据：当前周期（freq={freq}）</div>
+                  </div>
+                </div>
+              )}
+        </div>
+        <div className="flex-1 p-3 overflow-auto min-h-0">
+              {dlgTab === 'indicators' ? (
+                <div className="space-y-2">
+                  {sortedIndicatorItems.map((it) => {
+                    const favKey = `ind:${it.key}`;
+                    const fav = !!favorites[favKey];
+                    const enabled = enabledIndicators.includes(it.key);
+                    return (
+                      <div key={it.key} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm text-white font-medium">{it.name}</div>
+                            <div className="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-400">{it.location === 'overlay' ? '主图' : '副图'}</div>
+                            {enabled && <div className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-gray-200">已启用</div>}
+                          </div>
+                          <div className="mt-1 text-xs text-gray-400">{it.desc}</div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            title={fav ? '取消收藏' : '收藏'}
+                            onClick={() => setFavorites((p) => ({ ...p, [favKey]: !p[favKey] }))}
+                            className={cn('h-8 w-8 rounded-lg border border-white/10 text-sm', fav ? 'bg-white/10 text-yellow-300' : 'bg-transparent text-gray-400 hover:bg-white/5')}
+                          >
+                            {fav ? '★' : '☆'}
+                          </button>
+
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => toggleIndicator(it.key)}
+                            className={cn('rounded-lg bg-white/10 hover:bg-white/15 text-gray-100')}
+                          >
+                            {enabled ? '移除' : '添加'}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {sortedIndicatorItems.length === 0 && <div className="text-sm text-gray-400 px-2 py-4">没有匹配的指标</div>}
+                </div>
+              ) : dlgTab === 'strategies' ? (
+                <div className="space-y-2">
+                  {sortedStrategyItems.map((it) => {
+                    const favKey = `stg:${it.key}`;
+                    const fav = !!favorites[favKey];
+                    const enabled = strategy === it.key;
+                    const rank = it.key === 'none' ? null : strategyRankMap[it.key];
+                    const sum = it.key === 'none' ? null : strategySummaryMap[it.key];
+                    const winText =
+                      sum && sum.tradeCount > 0 && Number.isFinite(sum.winRate) ? `${fmt(sum.winRate, 2)}%` : '--';
+                    const tradeText = sum ? `${sum.tradeCount}` : '--';
+                    return (
+                      <div key={it.key} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            {rank != null && <div className="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-300">#{rank}</div>}
+                            <div className="text-sm text-white font-medium">{it.label}</div>
+                            {enabled && <div className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-gray-200">当前</div>}
+                          </div>
+                          <div className="mt-1 text-xs text-gray-400">{it.note ?? ''}</div>
+                          {it.key !== 'none' && (
+                            <div className="mt-2 text-xs text-gray-300">
+                              胜率 <span className="text-white">{winText}</span>
+                              <span className="mx-2 text-gray-600">·</span>
+                              交易次数 <span className="text-white">{tradeText}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            title={fav ? '取消收藏' : '收藏'}
+                            onClick={() => setFavorites((p) => ({ ...p, [favKey]: !p[favKey] }))}
+                            className={cn('h-8 w-8 rounded-lg border border-white/10 text-sm', fav ? 'bg-white/10 text-yellow-300' : 'bg-transparent text-gray-400 hover:bg-white/5')}
+                          >
+                            {fav ? '★' : '☆'}
+                          </button>
+
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setStrategy(it.key)}
+                            className={cn('rounded-lg bg-white/10 hover:bg-white/15 text-gray-100')}
+                          >
+                            {enabled ? '已使用' : '使用'}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {sortedStrategyItems.length === 0 && <div className="text-sm text-gray-400 px-2 py-4">没有匹配的策略</div>}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-white font-medium">回测报告</div>
+                    <div className="text-[11px] text-gray-500">下一根开盘成交 · 成本=0 · 一手=100</div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-xs text-gray-400">初始资金</div>
+                    <Input
+                      value={btCapitalText}
+                      onChange={(e) => setBtCapitalText(e.target.value)}
+                      className="h-8 w-32 bg-white/5 border-white/10 text-gray-200"
+                      inputMode="decimal"
+                    />
+                    <div className="text-xs text-gray-500">信号在收盘生成，下一根开盘成交</div>
+                  </div>
+
+                  {strategy === 'none' ? (
+                    <div className="text-sm text-gray-400 px-2 py-6">请在左侧选择一个策略，然后查看右侧回测结果。</div>
+                  ) : !backtest.ok ? (
+                    <div className="text-sm text-gray-400 px-2 py-6">{backtest.error ?? '回测失败'}</div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">期末权益</div>
+                          <div className="mt-1 text-sm text-white font-semibold">{fmt(backtest.finalEquity, 2)}</div>
+                        </div>
+
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">净利润</div>
+                          <div className={cn('mt-1 text-sm font-semibold', backtest.netProfit >= 0 ? 'text-red-400' : 'text-green-400')}>
+                            {backtest.netProfit >= 0 ? '+' : ''}
+                            {fmt(backtest.netProfit, 2)}
+                            <span className="ml-2 text-xs text-gray-400">
+                              ({backtest.netProfitPct >= 0 ? '+' : ''}
+                              {fmt(backtest.netProfitPct, 2)}%)
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">最大回撤</div>
+                          <div className="mt-1 text-sm text-white font-semibold">
+                            {fmt(backtest.maxDrawdown, 2)}
+                            <span className="ml-2 text-xs text-gray-400">({fmt(backtest.maxDrawdownPct, 2)}%)</span>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">胜率</div>
+                          <div className="mt-1 text-sm text-white font-semibold">{fmt(backtest.winRate, 2)}%</div>
+                        </div>
+
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">利润因子</div>
+                          <div className="mt-1 text-sm text-white font-semibold">
+                            {backtest.profitFactor == null ? '--' : backtest.profitFactor === Infinity ? '∞' : fmt(backtest.profitFactor, 2)}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">买入并持有</div>
+                          <div className="mt-1 text-sm text-white font-semibold">
+                            {backtest.buyHoldPct == null ? '--' : `${backtest.buyHoldPct >= 0 ? '+' : ''}${fmt(backtest.buyHoldPct, 2)}%`}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[11px] text-gray-400">可信度指标</div>
+                          <div className="text-[11px] text-gray-500">样本：{backtest.sampleStart ?? '--'} ~ {backtest.sampleEnd ?? '--'}（{backtest.sampleDays ?? '--'} 天 / {backtest.trades.length} 笔）</div>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2">
+                          <div className="rounded-lg border border-white/10 bg-black/20 p-2">
+                            <div className="text-[11px] text-gray-400">年化波动率（按日）</div>
+                            <div className="mt-1 text-sm text-white font-semibold">{backtest.annualVolPct == null ? '--' : `${fmt(backtest.annualVolPct, 2)}%`}</div>
+                          </div>
+                          <div className="rounded-lg border border-white/10 bg-black/20 p-2">
+                            <div className="text-[11px] text-gray-400">Sortino 比率</div>
+                            <div className="mt-1 text-sm text-white font-semibold">{backtest.sortino == null ? '--' : backtest.sortino === Infinity ? '∞' : fmt(backtest.sortino, 2)}</div>
+                          </div>
+                          <div className="rounded-lg border border-white/10 bg-black/20 p-2">
+                            <div className="text-[11px] text-gray-400">Ulcer 指数</div>
+                            <div className="mt-1 text-sm text-white font-semibold">{backtest.ulcerIndex == null ? '--' : fmt(backtest.ulcerIndex, 2)}</div>
+                          </div>
+                          <div className="rounded-lg border border-white/10 bg-black/20 p-2">
+                            <div className="text-[11px] text-gray-400">Recovery Factor</div>
+                            <div className="mt-1 text-sm text-white font-semibold">{backtest.recoveryFactor == null ? '--' : backtest.recoveryFactor === Infinity ? '∞' : fmt(backtest.recoveryFactor, 2)}</div>
+                          </div>
+                          <div className="rounded-lg border border-white/10 bg-black/20 p-2 col-span-2">
+                            <div className="text-[11px] text-gray-400">最大回撤持续</div>
+                            <div className="mt-1 text-sm text-white font-semibold">{backtest.maxDdDurationDays == null ? '--' : `${backtest.maxDdDurationDays} 天`}</div>
+                            <div className="text-[11px] text-gray-500 mt-0.5">{backtest.maxDdStart ?? '--'} → {backtest.maxDdEnd ?? '--'}</div>
+                          </div>
+                          <div className="rounded-lg border border-white/10 bg-black/20 p-2 col-span-2">
+                            <div className="text-[11px] text-gray-400">说明</div>
+                            <div className="text-[11px] text-gray-500 mt-1 leading-5">这些指标基于“按日权益曲线”计算（将每个交易日最后一根 K 线的权益作为日末权益），可用于判断策略稳定性与回撤修复能力。</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">权益曲线</div>
+                          <div className="mt-2 h-14 md:h-16">
+                            <Sparkline values={backtest.equityCurve} />
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">回撤曲线（%）</div>
+                          <div className="mt-2 h-14 md:h-16">
+                            <Sparkline values={backtest.drawdownPctCurve.map((v) => -v)} stroke="rgba(239,68,68,0.85)" />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">持仓占比</div>
+                          <div className="mt-1 text-sm text-white font-semibold">{fmt(backtest.exposurePct, 2)}%</div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">期望收益（每笔%）</div>
+                          <div className="mt-1 text-sm text-white font-semibold">{backtest.expectancyPct == null ? '--' : `${backtest.expectancyPct >= 0 ? '+' : ''}${fmt(backtest.expectancyPct, 2)}%`}</div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">平均盈利 / 平均亏损</div>
+                          <div className="mt-1 text-sm text-white font-semibold">{backtest.avgWinPct == null ? '--' : `${backtest.avgWinPct >= 0 ? '+' : ''}${fmt(backtest.avgWinPct, 2)}%`} / {backtest.avgLossPct == null ? '--' : `${fmt(backtest.avgLossPct, 2)}%`}</div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">平均持仓 / 最长持仓（K）</div>
+                          <div className="mt-1 text-sm text-white font-semibold">{backtest.avgBarsHeld == null ? '--' : fmt(backtest.avgBarsHeld, 1)} / {backtest.maxBarsHeld == null ? '--' : backtest.maxBarsHeld}</div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">最大连胜 / 连亏</div>
+                          <div className="mt-1 text-sm text-white font-semibold">{backtest.maxConsecWins == null ? '--' : backtest.maxConsecWins} / {backtest.maxConsecLosses == null ? '--' : backtest.maxConsecLosses}</div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">CAGR（年化）</div>
+                          <div className="mt-1 text-sm text-white font-semibold">{backtest.cagrPct == null ? '--' : `${backtest.cagrPct >= 0 ? '+' : ''}${fmt(backtest.cagrPct, 2)}%`}</div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">夏普比率（按日）</div>
+                          <div className="mt-1 text-sm text-white font-semibold">{backtest.sharpe == null ? '--' : fmt(backtest.sharpe, 2)}</div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[11px] text-gray-400">卡玛比率</div>
+                          <div className="mt-1 text-sm text-white font-semibold">{backtest.calmar == null ? '--' : fmt(backtest.calmar, 2)}</div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-white/10 overflow-hidden">
+                        <div className="px-3 py-2 bg-white/5 border-b border-white/10 flex items-center justify-between gap-2">
+                          <div className="text-xs text-gray-200">月度收益</div>
+                          <div className="text-[11px] text-gray-500">{backtest.monthlyReturns.length} 个月</div>
+                        </div>
+                        <div className="max-h-[160px] overflow-auto">
+                          <table className="w-full text-xs text-gray-200">
+                            <thead className="sticky top-0 bg-[#0b0b0b]">
+                              <tr className="text-gray-400">
+                                <th className="text-left px-3 py-2 font-medium">月份</th>
+                                <th className="text-right px-3 py-2 font-medium">收益%</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {backtest.monthlyReturns.length === 0 ? (
+                                <tr>
+                                  <td colSpan={2} className="px-3 py-3 text-gray-400">
+                                    数据不足
+                                  </td>
+                                </tr>
+                              ) : (
+                                backtest.monthlyReturns.slice(-24).map((m) => (
+                                  <tr key={m.month} className="border-t border-white/5">
+                                    <td className="px-3 py-2 text-gray-300">{m.month}</td>
+                                    <td className={cn('px-3 py-2 text-right', m.retPct >= 0 ? 'text-red-400' : 'text-green-400')}>
+                                      {m.retPct >= 0 ? '+' : ''}{fmt(m.retPct, 2)}%
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="px-1">
+                        <div className="text-[11px] text-gray-500">注：买入按 100 股一手（lot=100），信号在收盘生成，下一根开盘成交（next open）。未计手续费/滑点。</div>
+                      </div>
+
+                      <div className="rounded-xl border border-white/10 overflow-hidden">
+                        <div className="px-3 py-2 bg-white/5 border-b border-white/10 flex items-center justify-between gap-2">
+                          <div className="text-xs text-gray-200">交易列表</div>
+                          <div className="text-[11px] text-gray-500">共 {backtest.trades.length} 笔（未平仓按最后收盘计）</div>
+                        </div>
+
+                        <div className="max-h-[260px] overflow-auto">
+                          <table className="w-full text-xs text-gray-200">
+                            <thead className="sticky top-0 bg-[#0b0b0b]">
+                              <tr className="text-gray-400">
+                                <th className="text-left px-3 py-2 font-medium">#</th>
+                                <th className="text-left px-3 py-2 font-medium">入场</th>
+                                <th className="text-left px-3 py-2 font-medium">出场</th>
+                                <th className="text-right px-3 py-2 font-medium">入价</th>
+                                <th className="text-right px-3 py-2 font-medium">出价</th>
+                                <th className="text-right px-3 py-2 font-medium">收益</th>
+                                <th className="text-right px-3 py-2 font-medium">%</th>
+                                <th className="text-right px-3 py-2 font-medium">持有</th>
+                              </tr>
+                            </thead>
+
+                            <tbody>
+                              {backtest.trades.length === 0 ? (
+                                <tr>
+                                  <td colSpan={8} className="px-3 py-4 text-gray-400">
+                                    没有交易（当前窗口无信号或信号不成对）
+                                  </td>
+                                </tr>
+                              ) : (
+                                backtest.trades.slice(-200).map((tr, i) => (
+                                  <tr key={`${tr.entryIndex}-${tr.exitIndex}-${i}`} className="border-t border-white/5">
+                                    <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                                    <td className="px-3 py-2">{new Date(tr.entryTime * 1000).toLocaleString()}</td>
+                                    <td className="px-3 py-2">
+                                      {new Date(tr.exitTime * 1000).toLocaleString()}
+                                      {tr.open && (
+                                        <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-gray-400">未平仓</span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2 text-right">{fmt(tr.entryPrice, 2)}</td>
+                                    <td className="px-3 py-2 text-right">{fmt(tr.exitPrice, 2)}</td>
+                                    <td className={cn('px-3 py-2 text-right', tr.pnl >= 0 ? 'text-red-400' : 'text-green-400')}>
+                                      {tr.pnl >= 0 ? '+' : ''}
+                                      {fmt(tr.pnl, 2)}
+                                    </td>
+                                    <td className={cn('px-3 py-2 text-right', tr.pnlPct >= 0 ? 'text-red-400' : 'text-green-400')}>
+                                      {tr.pnlPct >= 0 ? '+' : ''}
+                                      {fmt(tr.pnlPct, 2)}%
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-gray-400">{tr.barsHeld}</td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+                  </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

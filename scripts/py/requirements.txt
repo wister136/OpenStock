@@ -1,0 +1,4 @@
+baostock
+pymongo
+python-dateutil
+tzdata

@@ -1,0 +1,45 @@
+'use client';
+
+import React, { ReactNode, useCallback } from 'react';
+
+type ExternalOpenOverlayProps = {
+  url: string;
+  children: ReactNode;
+  className?: string;
+};
+
+/**
+ * Wraps an embedded widget (usually an iframe) and makes clicks open `url` in a
+ * new tab, without navigating away from the current page.
+ *
+ * This is useful for TradingView embeds: users can click the chart area to open
+ * the full TradingView page in a new tab, while still staying on our in-app page.
+ *
+ * NOTE: Because TradingView widgets are rendered inside iframes, we implement
+ * this by drawing an overlay on top of the widget. This means interactions
+ * with the embedded widget (zoom, timeframe buttons, etc.) are blocked.
+ */
+export default function ExternalOpenOverlay({
+  url,
+  children,
+  className,
+}: ExternalOpenOverlayProps) {
+  const handleOpen = useCallback(() => {
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch {
+      // ignore
+    }
+  }, [url]);
+
+  return (
+    <div className={`relative ${className ?? ''}`}>
+      {children}
+      <div
+        className="absolute inset-0 z-10 cursor-pointer"
+        onClick={handleOpen}
+        aria-hidden="true"
+      />
+    </div>
+  );
+}
