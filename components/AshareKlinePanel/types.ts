@@ -103,6 +103,13 @@ export type StrategyFilters = {
   volLookback: number;
   volMult: number;
 
+  /** Soft volume floor as % of avg volume (0 disables). */
+  volFloorPct: number;
+
+  /** ADX trend strength filter (0 disables). */
+  adxLen: number;
+  minAdx: number;
+
   /** Avoid over-trading in very choppy markets. */
   minBarsBetweenBuys: number;
 
@@ -136,6 +143,13 @@ export const DEFAULT_STRATEGY_PARAMS: StrategyParams = {
     emaSlopeLookback: 5,
     volLookback: 20,
     volMult: 1.1,
+
+    // Soft floor to avoid missing/zero volume bars blocking all signals.
+    volFloorPct: 5,
+
+    // ADX filter (trend strength). Set to 0 to disable.
+    adxLen: 14,
+    minAdx: 0,
     minBarsBetweenBuys: 5,
 
     // ATR% regime (mild, helps reduce drawdown and improve PF)

@@ -151,7 +151,7 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
   const btHardDdPct = useMemo(() => {
     const v = Number(btHardDdPctText);
     // allow decimals; clamp to a sensible range
-    return Number.isFinite(v) && v > 0 ? Math.max(0.5, Math.min(50, v)) : (DEFAULT_BACKTEST_CONFIG.risk?.hardMaxDdPct ?? 5);
+    return Number.isFinite(v) && v > 0 ? Math.max(0.5, Math.min(95, v)) : (DEFAULT_BACKTEST_CONFIG.risk?.hardMaxDdPct ?? 5);
   }, [btHardDdPctText]);
 
 
@@ -1829,6 +1829,11 @@ useEffect(() => {
                         pyramidingOptimizing={pyramidingOptimizing}
                         onApplyPyramidingCandidate={applyPyramidingCandidate}
                       />
+                    </div>
+
+                    {/* 策略参数 + 过滤器（可编辑） */}
+                    <div className="mt-3">
+                      <StrategyParamsPanel strategy={strategy} stParams={stParams} setStParams={setStParams} />
                     </div>
 
                     <div className="mt-3">

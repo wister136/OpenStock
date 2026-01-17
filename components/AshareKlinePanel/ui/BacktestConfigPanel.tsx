@@ -283,12 +283,12 @@ export default function BacktestConfigPanel({
         <button
           type="button"
           onClick={onAutoPyramiding}
-          disabled={!onAutoPyramiding || pyramidingOptimizing}
+          disabled={!onAutoPyramiding || pyramidingOptimizing || allInMode}
           className={cn(
             'ml-1 h-8 px-2 rounded-lg text-xs border border-white/10 bg-white/5 hover:bg-white/10 text-gray-100',
-            (!onAutoPyramiding || pyramidingOptimizing) && 'opacity-50 cursor-not-allowed'
+            (!onAutoPyramiding || pyramidingOptimizing || allInMode) && 'opacity-50 cursor-not-allowed'
           )}
-          title="自动搜索：每次加仓(手) + 最多加仓次数（以收益因子/回撤综合评分）"
+          title={allInMode ? "全仓复利模式下：每次加仓/最多加仓次数无意义（已禁用）" : "自动搜索：每次加仓(手) + 最多加仓次数（以收益因子/回撤综合评分）"}
         >
           {pyramidingOptimizing ? '计算中…' : '自动设置加仓'}
         </button>
