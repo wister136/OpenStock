@@ -88,6 +88,8 @@ export default function BacktestConfigPanel({
 
   const allowPyramiding = Boolean(config.allowPyramiding);
   const allowSameDirRepeat = Boolean(config.allowSameDirectionRepeat);
+  const entryMode = (config.entryMode ?? 'FIXED') as 'FIXED' | 'ALL_IN';
+  const allInMode = entryMode === 'ALL_IN';
 
   const commitCapital = () => {
     const v = Math.floor(Number(capitalText));
@@ -181,6 +183,16 @@ export default function BacktestConfigPanel({
           className="h-8 w-20 rounded-lg bg-white/5 border-white/10 text-gray-100 text-xs"
         />
 
+        {/* Entry mode */}
+        <label className="ml-2 flex items-center gap-2 text-xs text-gray-300 select-none" title="开启后：每次入场使用约 99% 可用资金计算最大可买手数（忽略固定手数）。若启用风控动态仓位，则以风控为准。">
+          <input
+            type="checkbox"
+            checked={allInMode}
+            onChange={(e) => setConfig((prev) => ({ ...prev, entryMode: e.target.checked ? 'ALL_IN' : 'FIXED' }))}
+          />
+          全仓复利
+        </label>
+
         <div className="ml-2 text-xs text-gray-400">滑点(bps)</div>
         <Input
           value={slippageBpsText}
@@ -249,6 +261,16 @@ export default function BacktestConfigPanel({
           className="h-8 w-20 rounded-lg bg-white/5 border-white/10 text-gray-100 text-xs"
           title="达到该回撤(峰值到当前)时触发硬止损/停止交易；同时会自动设置更低的回撤暂停阈值"
         />
+
+        {/* Confirm button: apply DD limit without needing to blur the input */}
+        <button
+          type="button"
+          onClick={commitDdLimit}
+          className="h-8 px-2 rounded-lg text-xs border border-white/10 bg-white/5 hover:bg-white/10 text-gray-100"
+          title="确认回撤上限"
+        >
+          确认
+        </button>
         <label className="ml-2 flex items-center gap-2 text-xs text-gray-300 select-none">
           <input
             type="checkbox"
@@ -271,10 +293,12 @@ export default function BacktestConfigPanel({
           {pyramidingOptimizing ? '计算中…' : '自动设置加仓'}
         </button>
 
-        <div className={cn('ml-2 text-xs text-gray-400', !allowPyramiding && 'opacity-50')}>每次加仓(手)</div>
+        <div className={cn('ml-2 text-xs text-gray-400', (!allowPyramiding || allInMode) && 'opacity-50')}>
+          每次加仓(手)
+        </div>
         <Input
           value={orderLotsText}
-          disabled={!allowPyramiding}
+          disabled={!allowPyramiding || allInMode}
           onFocus={() => (lotsEditing.current = true)}
           onChange={(e) => setOrderLotsText(sanitizeIntText(e.target.value))}
           onBlur={() => {
@@ -286,6 +310,20 @@ export default function BacktestConfigPanel({
           }}
           className="h-8 w-16 rounded-lg bg-white/5 border-white/10 text-gray-100 text-xs disabled:opacity-50"
         />
+
+        {/* Confirm button: make sure the edited value takes effect immediately */}
+        <button
+          type="button"
+          onClick={commitOrderLots}
+          disabled={!allowPyramiding || allInMode}
+          className={cn(
+            'h-8 px-2 rounded-lg text-xs border border-white/10 bg-white/5 hover:bg-white/10 text-gray-100',
+            (!allowPyramiding || allInMode) && 'opacity-50 cursor-not-allowed'
+          )}
+          title={allInMode ? '全仓复利模式下禁用加仓手数' : '确认每次加仓(手)'}
+        >
+          确认
+        </button>
 
         <div className={cn('ml-2 text-xs text-gray-400', !allowPyramiding && 'opacity-50')}>最多加仓次数</div>
         <Input
@@ -302,6 +340,20 @@ export default function BacktestConfigPanel({
           }}
           className="h-8 w-16 rounded-lg bg-white/5 border-white/10 text-gray-100 text-xs disabled:opacity-50"
         />
+
+        {/* Confirm button: make sure the edited value takes effect immediately */}
+        <button
+          type="button"
+          onClick={commitMaxEntries}
+          disabled={!allowPyramiding}
+          className={cn(
+            'h-8 px-2 rounded-lg text-xs border border-white/10 bg-white/5 hover:bg-white/10 text-gray-100',
+            !allowPyramiding && 'opacity-50 cursor-not-allowed'
+          )}
+          title="确认最多加仓次数"
+        >
+          确认
+        </button>
 
         <label className={cn('ml-2 flex items-center gap-2 text-xs text-gray-300 select-none', !allowPyramiding && 'opacity-50')}>
           <input

@@ -291,14 +291,26 @@ export function runBacktestNextOpen(
   const atrArr = riskEnabled ? computeATRSeries(atrLen) : [];
 
   // Dynamic sizing (keeps each stop-out small -> higher PF & lower DD)
-  const dynamicSizingEnabled = riskEnabled && Boolean(risk?.dynamicSizing);
+  // NOTE: "ALL_IN" is an explicit user choice and should override dynamic sizing.
+  // Otherwise users will see "全仓复利" not taking effect.
+  const dynamicSizingEnabled = riskEnabled && Boolean(risk?.dynamicSizing) && cfg.entryMode !== 'ALL_IN';
   const dynMinLots = dynamicSizingEnabled ? Math.max(1, Math.floor(risk?.dynMinLots ?? 1)) : 1;
   const dynMaxLots = dynamicSizingEnabled
     ? Math.max(dynMinLots, Math.floor(risk?.dynMaxLots ?? 10))
     : Math.max(1, Math.floor(cfg.orderLots ?? 1));
 
   const calcDynamicShares = (idx: number, buyPx: number, equityAtOpen: number, cashAvail: number): number => {
-    if (!dynamicSizingEnabled) return Math.max(1, Math.floor(cfg.orderLots)) * cfg.lotSize;
+    // FIXED sizing: use cfg.orderLots * lotSize
+    if (!dynamicSizingEnabled) {
+      // ALL_IN sizing: spend ~99% available cash to buy shares (leave 1% buffer for slippage/fees)
+      if (cfg.entryMode === 'ALL_IN') {
+        const safeCash = Math.max(0, cashAvail) * 0.99;
+        const affordable = Math.floor(safeCash / (buyPx * (1 + feeRate)) / cfg.lotSize) * cfg.lotSize;
+        if (!Number.isFinite(affordable) || affordable <= 0) return 0;
+        return affordable;
+      }
+      return Math.max(1, Math.floor(cfg.orderLots)) * cfg.lotSize;
+    }
     const riskPct = Math.max(0, Number(risk?.riskPerTradePct ?? 0));
     const stopK = Math.max(0, Number(risk?.stopAtr ?? 0));
     const a = atrArr?.[Math.max(0, idx - 1)] ?? atrArr?.[idx];
@@ -461,10 +473,14 @@ export function runBacktestNextOpen(
 
       // 0a) HARD drawdown kill-switch: force close position and stop trading
       // This is the key lever to keep MDD <= ~5% (subject to gap risk in next-open model).
-      if (riskEnabled && qty > 0 && Number.isFinite(openPx) && openPx > 0) {
+      // IMPORTANT: the pause must trigger even when we're already flat, otherwise the user
+      // may see "回撤上限" not working (new entries keep happening).
+      if (riskEnabled && Number.isFinite(openPx) && openPx > 0) {
         const hardDd = Math.max(0, Number(risk?.hardMaxDdPct ?? 0));
         if (hardDd > 0 && lastDdPct >= hardDd) {
-          doExit(idx, openPx, false, 'DdStop');
+          if (qty > 0) {
+            doExit(idx, openPx, false, 'DdStop');
+          }
           const pause = Math.max(0, Math.floor(risk?.hardDdPauseBars ?? 0));
           if (pause > 0) circuitUntil = Math.max(circuitUntil, idx + pause);
         }
@@ -587,7 +603,11 @@ export function runBacktestNextOpen(
               const gapOk = minGap <= 0 ? true : (lastAddIndex >= 0 ? (idx - lastAddIndex >= minGap) : true);
 
               if (movedEnough && gapOk) {
-                const maxExp = Math.max(1, Math.min(100, Number(risk?.maxExposurePct ?? 100)));
+                // In "ALL_IN" mode the user explicitly wants max exposure.
+                // So we bypass the exposure cap to make the mode actually take effect.
+                const maxExp = cfg.entryMode === 'ALL_IN'
+                  ? 100
+                  : Math.max(1, Math.min(100, Number(risk?.maxExposurePct ?? 100)));
                 const addShares = calcDynamicShares(idx, buyPx, cash + qty * buyPx, cash);
                 const addCost = addShares * buyPx * (1 + feeRate);
                 if (addShares > 0 && Number.isFinite(addCost) && addCost <= cash) {
@@ -634,7 +654,10 @@ export function runBacktestNextOpen(
             const buyPx = openPx * (1 + slipRate);
 
             // Exposure cap (protect DD): avoid over-sizing positions
-            const maxExp = riskEnabled ? Math.max(1, Math.min(100, Number(risk?.maxExposurePct ?? 100))) : 100;
+            // In "ALL_IN" mode the user explicitly wants max exposure.
+            const maxExp = riskEnabled && cfg.entryMode !== 'ALL_IN'
+              ? Math.max(1, Math.min(100, Number(risk?.maxExposurePct ?? 100)))
+              : 100;
 
             if (qty === 0) {
               // Entry: fixed lots, skip if not enough cash

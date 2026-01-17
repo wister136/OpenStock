@@ -67,7 +67,7 @@ export function recommendStrategies(
   capital: number,
   stParams: StrategyParams,
   regime: MarketRegime,
-  lookbackBars = 300
+  lookbackBars = 1000
 ): StrategyRecommendation[] {
   if (bars.length < 100) return [];
 
@@ -78,6 +78,7 @@ export function recommendStrategies(
   const cfg: BacktestConfig = {
     ...DEFAULT_BACKTEST_CONFIG,
     capital,
+    entryMode: 'ALL_IN',
     risk: { ...DEFAULT_BACKTEST_CONFIG.risk, enable: true }
   };
 

@@ -13,7 +13,18 @@ import { useI18n } from '@/lib/i18n';
 import { detectMarketRegime, recommendStrategies } from './engine/regime';
 import type { MarketRegimeInfo, StrategyRecommendation } from './types';
 
-import type { AllowedFreq, StrategyKey, StrategyParams, IndicatorKey, Marker, OverlayMarker, StrategySignal, BacktestTrade, BacktestResult, BacktestConfig
+import type {
+  AllowedFreq,
+  StrategyKey,
+  StrategyParams,
+  IndicatorKey,
+  Marker,
+  OverlayMarker,
+  StrategySignal,
+  BacktestTrade,
+  BacktestResult,
+  BacktestConfig,
+  BacktestEntryMode,
 } from './types';
 import {
 DEFAULT_INITIAL_CAPITAL,
@@ -83,6 +94,12 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
   const [recommendations, setRecommendations] = useState<StrategyRecommendation[]>([]);
  // 新增：回测窗口模式
   const [btWindowMode, setBtWindowMode] = useState<'full' | 'recent_60' | 'recent_120'>('full');
+
+  // 新增：仓位模式（固定手数 / 全仓复利）
+  const [btEntryMode, setBtEntryMode] = useState<BacktestEntryMode>(() => {
+    const stored = safeLocalStorageGet('openstock_bt_entry_mode_v1');
+    return stored === 'ALL_IN' ? 'ALL_IN' : 'FIXED';
+  });
 
   // Strategy (A: arrows only)
   const [strategy, setStrategy] = useState<StrategyKey>('none');
@@ -173,7 +190,14 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
     const repStored = safeLocalStorageGet('openstock_bt_allow_same_dir_v1');
     if (typeof repStored === 'boolean') setBtAllowSameDirRepeat(repStored);
 
+    const emStored = safeLocalStorageGet('openstock_bt_entry_mode_v1');
+    if (emStored === 'FIXED' || emStored === 'ALL_IN') setBtEntryMode(emStored);
+
   }, []);
+
+  useEffect(() => {
+    safeLocalStorageSet('openstock_bt_entry_mode_v1', btEntryMode);
+  }, [btEntryMode]);
 
   useEffect(() => {
     safeLocalStorageSet('openstock_bt_capital_v1', btCapital);
@@ -226,8 +250,8 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
     setRegimeInfo(info);
 
     const timer = setTimeout(() => {
-      // 默认评估最近 300 根K线
-      const recs = recommendStrategies(bars, btCapital, stParams, info.regime, 300);
+      // 默认评估最近 1000 根K线（约 5-6 个月，对 30m/60m 更友好）
+      const recs = recommendStrategies(bars, btCapital, stParams, info.regime, 1000);
       setRecommendations(recs);
     }, 100);
     return () => clearTimeout(timer);
@@ -360,6 +384,7 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
   const btConfig = useMemo(
     () => ({
       ...DEFAULT_BACKTEST_CONFIG,
+      entryMode: btEntryMode,
       dateFrom: btDateFromText ? btDateFromText : undefined,
       dateTo: btDateToText ? btDateToText : undefined,
       feeBps: btFeeBps,
@@ -375,7 +400,7 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
         maxDdCircuitPct: btHardDdPct > 0 ? Math.max(0, Math.min(btHardDdPct * 0.84, btHardDdPct - 0.3)) : 0,
       },
     }),
-    [btFeeBps, btSlippageBps, btAllowPyramiding, btAllowSameDirRepeat, btOrderLots, btMaxEntries, btHardDdPct, btDateFromText, btDateToText]
+    [btEntryMode, btFeeBps, btSlippageBps, btAllowPyramiding, btAllowSameDirRepeat, btOrderLots, btMaxEntries, btHardDdPct, btDateFromText, btDateToText]
   );
 
 //   // Backtest sample filtering by date range (YYYY-MM-DD, no time)
@@ -457,21 +482,27 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
       if (cfg.feeBps != null) setBtFeeBpsText(String(cfg.feeBps));
       if (cfg.slippageBps != null) setBtSlippageBpsText(String(cfg.slippageBps));
 
+      if (cfg.entryMode) setBtEntryMode(cfg.entryMode);
+
       if (cfg.allowPyramiding != null) setBtAllowPyramiding(Boolean(cfg.allowPyramiding));
       if (cfg.allowSameDirectionRepeat != null) setBtAllowSameDirRepeat(Boolean(cfg.allowSameDirectionRepeat));
 
       if (cfg.orderLots != null) setBtOrderLotsText(String(cfg.orderLots));
       if (cfg.maxEntries != null) setBtMaxEntriesText(String(cfg.maxEntries));
 
+      if (cfg.entryMode === 'FIXED' || cfg.entryMode === 'ALL_IN') setBtEntryMode(cfg.entryMode);
+
       // Date range (YYYY-MM-DD)
-      if (cfg.dateFrom !== undefined) setBtDateFromText(cfg.dateFrom ?? '');
-      if (cfg.dateTo !== undefined) setBtDateToText(cfg.dateTo ?? '');
+      // IMPORTANT: allow explicitly clearing the date range by setting undefined
+      // (the panel's "清除" button sets dateFrom/dateTo to undefined)
+      if ('dateFrom' in cfg) setBtDateFromText((cfg as any).dateFrom ?? '');
+      if ('dateTo' in cfg) setBtDateToText((cfg as any).dateTo ?? '');
 
       if (cfg.risk?.hardMaxDdPct != null && Number.isFinite(cfg.risk.hardMaxDdPct) && cfg.risk.hardMaxDdPct > 0) {
         setBtHardDdPctText(String(cfg.risk.hardMaxDdPct));
       }
     },
-    [btCapital, btConfig, btFeeBps, btSlippageBps, btAllowPyramiding, btAllowSameDirRepeat, btOrderLots, btMaxEntries]
+    [btCapital, btConfig, btFeeBps, btSlippageBps, btAllowPyramiding, btAllowSameDirRepeat, btOrderLots, btMaxEntries, btEntryMode]
   );
 
   const applyPyramidingCandidate = useCallback(
@@ -1383,7 +1414,7 @@ useEffect(() => {
       </div>
 
       {/* Footer cards */}
-      <div className="px-5 pb-5 grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div className="px-5 pb-5 grid grid-cols-1 md:grid-cols-3 gap-3">
       {/* ... 保留原有的 MA, RSI 卡片 ... */}
         {/* === 新增：市场状态卡片 (插入在策略卡片之前) === */}
         <div className="rounded-xl bg-white/5 border border-white/5 p-4 relative overflow-hidden">
@@ -1396,7 +1427,7 @@ useEffect(() => {
               {regimeInfo?.regime === 'HIGH_VOL' && <span className="text-yellow-400 border border-yellow-400/30 px-1 rounded text-[10px]">高波动</span>}
             </div>
             <div className="mt-2 text-sm text-gray-100 font-medium truncate">
-              {regimeInfo?.description || '分析中.....'}
+              {regimeInfo?.description || '分析中...'}
             </div>
             <div className="mt-1 text-[10px] text-gray-500 font-mono">
               ADX:{regimeInfo?.adx.toFixed(0)} ATR%:{regimeInfo?.atrPct.toFixed(2)}
@@ -1611,7 +1642,7 @@ useEffect(() => {
                 </div>
 
                 <div className="space-y-2 overflow-auto pr-1 flex-1 min-h-0">
-                  {/* === 插入：智能推荐 === */}
+                  {/* === 智能推荐（置于列表顶部） === */}
                   {recommendations.length > 0 && (
                     <div className="mb-4 space-y-2">
                       <div className="text-xs text-yellow-400/80 font-medium px-1 flex items-center gap-1">
@@ -1622,7 +1653,10 @@ useEffect(() => {
                           <div
                             key={rec.key}
                             className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-yellow-500/10 transition"
-                            onClick={() => { setStrategy(rec.key); setDlgOpen(false); }}
+                            onClick={() => {
+                              setStrategy(rec.key);
+                              setDlgOpen(false);
+                            }}
                           >
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
@@ -1642,8 +1676,7 @@ useEffect(() => {
                       </div>
                     </div>
                   )}
-                  {/* === 插入结束 === */}
-
+                  {/* === 智能推荐结束 === */}
                   {sortedStrategyItems.map((it) => {
                     const s = strategySummaryMap[it.key];
                     const closedTrades = s?.tradeCount ?? 0;

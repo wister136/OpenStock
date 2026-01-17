@@ -392,6 +392,9 @@ export type BacktestConfig = {
   model: typeof BACKTEST_MODEL;
   lotSize: number;
 
+  /** Entry sizing mode. FIXED = use orderLots; ALL_IN = use (cash * 99%) / price. */
+  entryMode?: BacktestEntryMode;
+
   /** Optional date range filter (YYYY-MM-DD). Used by UI backtest only. */
   dateFrom?: string;
   dateTo?: string;
@@ -418,9 +421,14 @@ export type BacktestConfig = {
   forceCloseAtEnd: boolean;
 };
 
+// Position sizing / entry mode
+export type BacktestEntryMode = 'FIXED' | 'ALL_IN';
+
 export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   model: BACKTEST_MODEL,
   lotSize: LOT,
+
+  entryMode: 'FIXED',
 
   // Backtest date range (UI). Empty means "use full sample".
   dateFrom: undefined,
