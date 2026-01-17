@@ -165,9 +165,9 @@ export const MARKET_DATA_WIDGET_CONFIG = {
 
 // Home page mini cards
 export const HOME_WATCHLIST = [
-  { symbol: 'SZSE:002317', label: '002317' },
-  { symbol: 'SSE:600226', label: '600226' },
-  { symbol: 'SSE:603516', label: '603516' },
+  { symbol: 'SZSE:002317', label: '002317', name: '众生药业' },
+  { symbol: 'SSE:600226', label: '600226', name: '亨通股份' },
+  { symbol: 'SSE:603516', label: '603516', name: '淳中科技' },
 ];
 
 export const SYMBOL_INFO_WIDGET_CONFIG = (symbol: string) => ({

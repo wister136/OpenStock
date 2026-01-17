@@ -21,6 +21,91 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
   const highsArr = bars.map((b) => b.h);
   const lowsArr = bars.map((b) => b.l);
 
+  // ADX (Wilder) for trend-strength confirmation.
+  // Returns ADX aligned to bars (NaN where not enough data).
+  const adx = (highs: number[], lows: number[], closes: number[], period = 14) => {
+    const len = highs.length;
+    const plusDI: number[] = new Array(len).fill(NaN);
+    const minusDI: number[] = new Array(len).fill(NaN);
+    const adxArr: number[] = new Array(len).fill(NaN);
+
+    if (len < period + 2) return { adx: adxArr, plusDI, minusDI };
+
+    const tr: number[] = new Array(len).fill(NaN);
+    const plusDM: number[] = new Array(len).fill(0);
+    const minusDM: number[] = new Array(len).fill(0);
+
+    for (let i = 1; i < len; i++) {
+      const h = highs[i];
+      const l = lows[i];
+      const ph = highs[i - 1];
+      const pl = lows[i - 1];
+      const pc = closes[i - 1];
+      if (![h, l, ph, pl, pc].every((x) => Number.isFinite(x))) continue;
+
+      const upMove = h - ph;
+      const dnMove = pl - l;
+      plusDM[i] = upMove > dnMove && upMove > 0 ? upMove : 0;
+      minusDM[i] = dnMove > upMove && dnMove > 0 ? dnMove : 0;
+      tr[i] = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+    }
+
+    // Wilder smoothing for TR and DMs
+    let trSum = 0;
+    let plusSum = 0;
+    let minusSum = 0;
+    for (let i = 1; i <= period; i++) {
+      if (!Number.isFinite(tr[i])) return { adx: adxArr, plusDI, minusDI };
+      trSum += tr[i];
+      plusSum += plusDM[i];
+      minusSum += minusDM[i];
+    }
+
+    const dx: number[] = new Array(len).fill(NaN);
+
+    const calcDI = (i: number, trS: number, pS: number, mS: number) => {
+      if (!Number.isFinite(trS) || trS <= 0) return;
+      const pdi = (100 * pS) / trS;
+      const mdi = (100 * mS) / trS;
+      plusDI[i] = pdi;
+      minusDI[i] = mdi;
+      const denom = pdi + mdi;
+      dx[i] = denom === 0 ? 0 : (100 * Math.abs(pdi - mdi)) / denom;
+    };
+
+    // First DI/DX at index=period
+    calcDI(period, trSum, plusSum, minusSum);
+
+    // Continue smoothing
+    for (let i = period + 1; i < len; i++) {
+      if (!Number.isFinite(tr[i])) continue;
+      trSum = trSum - trSum / period + tr[i];
+      plusSum = plusSum - plusSum / period + plusDM[i];
+      minusSum = minusSum - minusSum / period + minusDM[i];
+      calcDI(i, trSum, plusSum, minusSum);
+    }
+
+    // ADX = Wilder smoothing of DX
+    // First ADX is the average of DX over [period..2*period-1]
+    let adxStart = period * 2 - 1;
+    if (len <= adxStart) return { adx: adxArr, plusDI, minusDI };
+
+    let dxSum = 0;
+    for (let i = period; i <= adxStart; i++) {
+      if (!Number.isFinite(dx[i])) return { adx: adxArr, plusDI, minusDI };
+      dxSum += dx[i];
+    }
+    adxArr[adxStart] = dxSum / period;
+    for (let i = adxStart + 1; i < len; i++) {
+      const prev = adxArr[i - 1];
+      const curDx = dx[i];
+      if (!Number.isFinite(prev) || !Number.isFinite(curDx)) continue;
+      adxArr[i] = (prev * (period - 1) + curDx) / period;
+    }
+
+    return { adx: adxArr, plusDI, minusDI };
+  };
+
   const atr = (period: number) => {
     const out: number[] = new Array(bars.length).fill(NaN);
     if (bars.length < period + 1) return out;
@@ -53,23 +138,21 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
   const atrFilterLen = Math.max(2, Math.floor(f?.atrLen ?? 14));
   const atrArr = f?.enable ? atr(atrFilterLen) : [];
 
+  // Trend-strength & long-term trend reference
+  const adxRes = adx(highsArr, lowsArr, closes, 14);
+  const ema200 = ema(closes, 200);
+
   let lastBuyIdx = -1e9;
 
-  const filterApplicable = (key: StrategyKey) =>
-    [
-      'maCross',
-      'emaTrend',
-      'macdCross',
-      'bollingerBreakout',
-      'channelBreakout',
-      'supertrend',
-      'atrBreakout',
-      'turtle',
-      'ichimoku',
-      'kdj',
-    ].includes(key);
+  const filterApplicable = (_key: StrategyKey) => true; // apply common filters to all strategies
 
   const shouldAcceptBuy = (i: number): boolean => {
+    // Global liquidity / fake-breakout guard: if volume is far below its average, reject.
+    // When volLookback exists, require current volume >= 20% of its SMA (helps avoid "no-volume" spikes).
+    const vv0 = vols[i];
+    const vs0 = volSma?.[i];
+    if (Number.isFinite(vv0) && Number.isFinite(vs0) && vs0 > 0 && vv0 < vs0 * 0.2) return false;
+
     if (!f?.enable) return true;
 
     const close = closes[i];
@@ -166,12 +249,21 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
 
   if (strategy === 'rsiReversion') {
     const r14 = rsi(closes, 14);
+    const bb = bollingerBands(closes, 20, 2);
     for (let i = 1; i < bars.length; i++) {
       const p = r14[i - 1];
       const c = r14[i];
-      if (![p, c].every((x) => Number.isFinite(x))) continue;
-      if (p < 30 && c >= 30) push(i, 'BUY', 'RSI 上穿 30');
-      if (p > 70 && c <= 70) push(i, 'SELL', 'RSI 下穿 70');
+      const cClose = closes[i];
+      const bLower = bb.lower[i];
+      if (![p, c, cClose].every((x) => Number.isFinite(x))) continue;
+
+      // Buy: RSI crosses up 30 AND price is near lower band (confirm oversold)
+      if (p < 30 && c >= 30) {
+        if (Number.isFinite(bLower) && cClose < bLower * 1.02) push(i, 'BUY', 'RSI超跌反弹 + 布林下轨支撑');
+      }
+
+      // Sell: RSI crosses down 70
+      if (p > 70 && c <= 70) push(i, 'SELL', 'RSI超买回归');
     }
   }
 
@@ -271,7 +363,11 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
         trend[i] = closes[i] > fUpper[i] ? 1 : -1;
       }
 
-      if (trend[i - 1] === -1 && trend[i] === 1) push(i, 'BUY', 'SuperTrend 由空转多');
+      // ADX trend-strength confirmation: only open when ADX > 20 (avoid range noise)
+      const currAdx = adxRes.adx[i];
+      if (trend[i - 1] === -1 && trend[i] === 1) {
+        if (Number.isFinite(currAdx) && currAdx > 20) push(i, 'BUY', `SuperTrend翻多 (ADX=${currAdx.toFixed(0)})`);
+      }
       if (trend[i - 1] === 1 && trend[i] === -1) push(i, 'SELL', 'SuperTrend 由多转空');
     }
   }
@@ -316,9 +412,14 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const pc = closes[i - 1];
       const eh = rollEntryHigh[i - 1];
       const xl = rollExitLow[i - 1];
+      const longTermMa = ema200[i];
       if (![c, pc, eh, xl].every((x) => Number.isFinite(x))) continue;
 
-      if (pc <= eh && c > eh) push(i, 'BUY', `海龟入场：上破${entryN}高点`);
+      // Entry only when above long-term trend (EMA200)
+      if (pc <= eh && c > eh) {
+        if (!Number.isFinite(longTermMa) || c <= longTermMa) continue;
+        push(i, 'BUY', `海龟入场：上破${entryN}高点（顺大势）`);
+      }
       if (pc >= xl && c < xl) push(i, 'SELL', `海龟出场：下破${exitN}低点`);
     }
   }
@@ -401,12 +502,14 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const pd = D[i - 1];
       const ck = K[i];
       const cd = D[i];
+      const cj = J[i];
       if (![pk, pd, ck, cd].every((x) => Number.isFinite(x))) continue;
 
       const crossUp = pk <= pd && ck > cd;
       const crossDn = pk >= pd && ck < cd;
 
-      if (crossUp && ck < 30) push(i, 'BUY', 'KDJ：低位金叉');
+      // Stronger oversold confirmation: require J < 0 when golden-cross happens
+      if (crossUp && ck < 30 && Number.isFinite(cj) && cj < 0) push(i, 'BUY', 'KDJ：深度超卖金叉');
       if (crossDn && ck > 70) push(i, 'SELL', 'KDJ：高位死叉');
     }
   }
