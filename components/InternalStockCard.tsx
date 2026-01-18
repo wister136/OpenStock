@@ -32,8 +32,8 @@ export default async function InternalStockCard({ symbol, label, name }: Props) 
   const isDown = (q?.change ?? 0) < 0;
   const changeClass = isUp ? 'text-red-500' : isDown ? 'text-green-500' : 'text-gray-300';
 
-  const detailLabel = tServer('common.viewDetails');
-  const tradingViewTitle = tServer('btn.openTradingView');
+  const detailLabel = await tServer('common.viewDetails');
+  const tradingViewTitle = await tServer('btn.openTradingView');
 
   return (
     <div className="group relative rounded-2xl bg-[#111] border border-white/5 shadow-sm overflow-hidden">

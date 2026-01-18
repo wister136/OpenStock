@@ -18,6 +18,11 @@ function toNumber(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function clampRange(value: number | undefined, min: number, max: number): number | undefined {
+  if (value == null || !Number.isFinite(value)) return undefined;
+  return Math.min(max, Math.max(min, value));
+}
+
 function sanitizeConfigPatch(body: any) {
   const weights = body?.weights ?? {};
   const thresholds = body?.thresholds ?? {};
@@ -27,28 +32,30 @@ function sanitizeConfigPatch(body: any) {
 
   return {
     weights: pick({
-      w_trend: toNumber(weights.w_trend),
-      w_range: toNumber(weights.w_range),
-      w_panic: toNumber(weights.w_panic),
-      w_news: toNumber(weights.w_news),
-      w_realtime: toNumber(weights.w_realtime),
+      w_trend: clampRange(toNumber(weights.w_trend), 0, 1),
+      w_range: clampRange(toNumber(weights.w_range), 0, 1),
+      w_panic: clampRange(toNumber(weights.w_panic), 0, 1),
+      w_news: clampRange(toNumber(weights.w_news), 0, 1),
+      w_realtime: clampRange(toNumber(weights.w_realtime), 0, 1),
     }),
     thresholds: pick({
-      trendScore: toNumber(thresholds.trendScore),
-      panicVolRatio: toNumber(thresholds.panicVolRatio),
-      panicDrawdown: toNumber(thresholds.panicDrawdown),
-      volRatioLow: toNumber(thresholds.volRatioLow),
-      volRatioHigh: toNumber(thresholds.volRatioHigh),
-      minLiquidityRatio: toNumber(thresholds.minLiquidityRatio),
-      realtimeVolSurprise: toNumber(thresholds.realtimeVolSurprise),
-      realtimeAmtSurprise: toNumber(thresholds.realtimeAmtSurprise),
-      newsPanicThreshold: toNumber(thresholds.newsPanicThreshold),
-      newsTrendThreshold: toNumber(thresholds.newsTrendThreshold),
+      trendScoreThreshold: clampRange(toNumber(thresholds.trendScoreThreshold ?? thresholds.trendScore), 0, 1),
+      panicVolRatio: clampRange(toNumber(thresholds.panicVolRatio), 0.1, 10),
+      panicDrawdown: clampRange(toNumber(thresholds.panicDrawdown), 0, 1),
+      volRatioLow: clampRange(toNumber(thresholds.volRatioLow), 0, 5),
+      volRatioHigh: clampRange(toNumber(thresholds.volRatioHigh), 0, 10),
+      minLiquidityAmountRatio: clampRange(toNumber(thresholds.minLiquidityAmountRatio ?? thresholds.minLiquidityRatio), 0, 5),
+      minLiquidityVolumeRatio: clampRange(toNumber(thresholds.minLiquidityVolumeRatio), 0, 5),
+      realtimeVolSurprise: clampRange(toNumber(thresholds.realtimeVolSurprise), 0, 10),
+      realtimeAmtSurprise: clampRange(toNumber(thresholds.realtimeAmtSurprise), 0, 10),
+      newsPanicThreshold: clampRange(toNumber(thresholds.newsPanicThreshold), 0, 1),
+      newsTrendThreshold: clampRange(toNumber(thresholds.newsTrendThreshold), 0, 1),
+      hysteresisThreshold: clampRange(toNumber(thresholds.hysteresisThreshold), 0, 1),
     }),
     positionCaps: pick({
-      trend: toNumber(positionCaps.trend),
-      range: toNumber(positionCaps.range),
-      panic: toNumber(positionCaps.panic),
+      trend: clampRange(toNumber(positionCaps.trend), 0, 1),
+      range: clampRange(toNumber(positionCaps.range), 0, 1),
+      panic: clampRange(toNumber(positionCaps.panic), 0, 1),
     }),
   };
 }
@@ -73,7 +80,11 @@ export async function GET(req: Request) {
       const defaults = buildDefaultConfig(userId, symbol);
       config = (await AshareStrategyConfig.create(defaults)).toObject();
     }
-    return NextResponse.json({ ok: true, config });
+    const normalized = normalizeConfig(config, userId, symbol);
+    if (JSON.stringify(config.thresholds) !== JSON.stringify(normalized.thresholds)) {
+      await AshareStrategyConfig.updateOne({ userId, symbol }, { $set: normalized });
+    }
+    return NextResponse.json({ ok: true, config: normalized });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }

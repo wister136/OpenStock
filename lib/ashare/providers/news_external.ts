@@ -35,6 +35,7 @@ export class ExternalNewsProvider implements NewsProvider {
   async getNewsSignal(args: { symbol: string }): Promise<NewsSignal | null> {
     const endpoint = process.env.NEWS_ENDPOINT;
     const apiKey = process.env.NEWS_API_KEY;
+    const timeoutMs = Number(process.env.NEWS_TIMEOUT_MS ?? 2500);
     if (!endpoint) return null;
 
     try {
@@ -45,12 +46,16 @@ export class ExternalNewsProvider implements NewsProvider {
       }
 
       const url = `${endpoint}${endpoint.includes('?') ? '&' : '?'}symbol=${encodeURIComponent(args.symbol)}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), Number.isFinite(timeoutMs) ? timeoutMs : 2500);
       const res = await fetch(url, {
         headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
         cache: 'no-store',
-      });
+        signal: controller.signal,
+      }).catch(() => null);
+      clearTimeout(timeoutId);
 
-      if (!res.ok) return null;
+      if (!res || !res.ok) return null;
       const json = await res.json();
 
       const items: Array<{ title?: string; summary?: string; source?: string }> =

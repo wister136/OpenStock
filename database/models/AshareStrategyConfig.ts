@@ -9,16 +9,18 @@ export type StrategyWeights = {
 };
 
 export type StrategyThresholds = {
-  trendScore: number;
+  trendScoreThreshold: number;
   panicVolRatio: number;
   panicDrawdown: number;
   volRatioLow: number;
   volRatioHigh: number;
-  minLiquidityRatio: number;
+  minLiquidityAmountRatio: number;
+  minLiquidityVolumeRatio?: number;
   realtimeVolSurprise: number;
   realtimeAmtSurprise: number;
   newsPanicThreshold: number;
   newsTrendThreshold: number;
+  hysteresisThreshold: number;
 };
 
 export type PositionCaps = {
@@ -48,16 +50,18 @@ const StrategyWeightsSchema = new Schema<StrategyWeights>(
 
 const StrategyThresholdsSchema = new Schema<StrategyThresholds>(
   {
-    trendScore: { type: Number, required: true },
+    trendScoreThreshold: { type: Number, required: true },
     panicVolRatio: { type: Number, required: true },
     panicDrawdown: { type: Number, required: true },
     volRatioLow: { type: Number, required: true },
     volRatioHigh: { type: Number, required: true },
-    minLiquidityRatio: { type: Number, required: true },
+    minLiquidityAmountRatio: { type: Number, required: true },
+    minLiquidityVolumeRatio: { type: Number, required: false, default: undefined },
     realtimeVolSurprise: { type: Number, required: true },
     realtimeAmtSurprise: { type: Number, required: true },
     newsPanicThreshold: { type: Number, required: true },
     newsTrendThreshold: { type: Number, required: true },
+    hysteresisThreshold: { type: Number, required: true },
   },
   { _id: false }
 );

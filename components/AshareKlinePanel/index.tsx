@@ -62,16 +62,18 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
       w_realtime: number;
     };
     thresholds: {
-      trendScore: number;
+      trendScoreThreshold: number;
       panicVolRatio: number;
       panicDrawdown: number;
       volRatioLow: number;
       volRatioHigh: number;
-      minLiquidityRatio: number;
+      minLiquidityAmountRatio: number;
+      minLiquidityVolumeRatio?: number;
       realtimeVolSurprise: number;
       realtimeAmtSurprise: number;
       newsPanicThreshold: number;
       newsTrendThreshold: number;
+      hysteresisThreshold: number;
     };
     positionCaps: {
       trend: number;
@@ -91,6 +93,7 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
       realtime?: { volSurprise: number; amtSurprise: number; ts: number };
     };
     reasons: string[];
+    serverTime: number;
   };
 
   const tvUrl = useMemo(() => tvChartUrl(symbol), [symbol]);
@@ -1689,7 +1692,7 @@ useEffect(() => {
       <div className="px-5 pb-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="rounded-xl bg-white/5 border border-white/5 p-4">
           <div className="flex items-center justify-between">
-            <div className="text-xs text-gray-400">Regime & Decision</div>
+            <div className="text-xs text-gray-400">{t('ashare.panel.regimeDecision')}</div>
             {decision && (
               <span
                 className={cn(
@@ -1706,23 +1709,27 @@ useEffect(() => {
             )}
           </div>
           <div className="mt-2 text-sm text-gray-100">
-            {decisionLoading ? 'Loading...' : decisionError ? `Error: ${decisionError}` : decision?.strategy ?? '--'}
+            {decisionLoading ? t('common.loading') : decisionError ? `${t('common.error')}: ${decisionError}` : decision?.strategy ?? '--'}
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-400">
-            <div>Action</div>
+            <div>{t('ashare.panel.action')}</div>
             <div className="text-gray-100">
               {decision?.action ?? '--'}
             </div>
-            <div>Regime Confidence</div>
+            <div>{t('ashare.panel.regimeConfidence')}</div>
             <div className="text-gray-100">
               {decision ? fmtPct(decision.regime_confidence) : '--'}
             </div>
-            <div>Position Cap</div>
+            <div>{t('ashare.panel.positionCap')}</div>
             <div className="text-gray-100">
               {decision ? fmtPct(decision.position_cap) : '--'}
             </div>
+            <div>{t('ashare.panel.serverTime')}</div>
+            <div className="text-gray-100">
+              {decision ? fmtTs(decision.serverTime) : '--'}
+            </div>
           </div>
-          <div className="mt-3 text-xs text-gray-400">Reasons</div>
+          <div className="mt-3 text-xs text-gray-400">{t('ashare.panel.reasons')}</div>
           <div className="mt-1 space-y-1 text-xs text-gray-300">
             {(decision?.reasons ?? []).slice(0, showAllReasons ? undefined : 3).map((r, i) => (
               <div key={`${r}-${i}`}>- {r}</div>
@@ -1737,38 +1744,38 @@ useEffect(() => {
               className="mt-2 h-7 px-2 text-[10px] text-gray-300"
               onClick={() => setShowAllReasons((v) => !v)}
             >
-              {showAllReasons ? '收起' : '展开更多'}
+              {showAllReasons ? t('common.collapse') : t('common.expandMore')}
             </Button>
           )}
         </div>
 
         <div className="rounded-xl bg-white/5 border border-white/5 p-4">
-          <div className="text-xs text-gray-400">External Signals</div>
+          <div className="text-xs text-gray-400">{t('ashare.panel.externalSignals')}</div>
           <div className="mt-2 text-xs text-gray-300">
             {decision?.external_signals?.news ? (
               <div>
-                News Sentiment: {decision.external_signals.news.score.toFixed(2)} / conf{' '}
+                {t('ashare.panel.newsSentiment')}: {decision.external_signals.news.score.toFixed(2)} / {t('ashare.panel.confidence')}{' '}
                 {decision.external_signals.news.confidence.toFixed(2)} · {fmtTs(decision.external_signals.news.ts)}
               </div>
             ) : (
-              <div>News signal: unavailable (fallback to Kline)</div>
+              <div>{t('ashare.panel.newsFallback')}</div>
             )}
           </div>
           <div className="mt-2 text-xs text-gray-300">
             {decision?.external_signals?.realtime ? (
               <div>
-                Realtime Surprise: vol {decision.external_signals.realtime.volSurprise.toFixed(2)} · amt{' '}
+                {t('ashare.panel.realtimeSurprise')}: {t('ashare.panel.vol')} {decision.external_signals.realtime.volSurprise.toFixed(2)} · {t('ashare.panel.amt')}{' '}
                 {decision.external_signals.realtime.amtSurprise.toFixed(2)} · {fmtTs(decision.external_signals.realtime.ts)}
               </div>
             ) : (
-              <div>Realtime signal: unavailable (fallback to Kline)</div>
+              <div>{t('ashare.panel.realtimeFallback')}</div>
             )}
           </div>
         </div>
 
         <div className="rounded-xl bg-white/5 border border-white/5 p-4">
           <div className="flex items-center justify-between">
-            <div className="text-xs text-gray-400">参数面板</div>
+            <div className="text-xs text-gray-400">{t('ashare.panel.configPanel')}</div>
             <div className="flex items-center gap-2">
               <Button
                 type="button"
@@ -1777,10 +1784,10 @@ useEffect(() => {
                 className="h-7 px-2 text-[10px] text-gray-300"
                 onClick={() => setShowParams((v) => !v)}
               >
-                {showParams ? '收起' : '展开'}
+                {showParams ? t('common.collapse') : t('common.expand')}
               </Button>
               <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-[10px]" onClick={applyConfig} disabled={configLoading}>
-                Apply
+                {t('common.apply')}
               </Button>
             </div>
           </div>
@@ -1815,8 +1822,8 @@ useEffect(() => {
                 <div className="text-gray-400">thresholds</div>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
-                    <div className="text-[10px] text-gray-500">trendScore</div>
-                    <Input type="number" step="0.01" value={configDraft.thresholds.trendScore} onChange={(e) => updateConfigField('thresholds', 'trendScore', Number(e.target.value))} />
+                    <div className="text-[10px] text-gray-500">trendScoreThreshold</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.trendScoreThreshold} onChange={(e) => updateConfigField('thresholds', 'trendScoreThreshold', Number(e.target.value))} />
                   </div>
                   <div>
                     <div className="text-[10px] text-gray-500">panicVolRatio</div>
@@ -1835,8 +1842,17 @@ useEffect(() => {
                     <Input type="number" step="0.01" value={configDraft.thresholds.volRatioHigh} onChange={(e) => updateConfigField('thresholds', 'volRatioHigh', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">minLiquidityRatio</div>
-                    <Input type="number" step="0.01" value={configDraft.thresholds.minLiquidityRatio} onChange={(e) => updateConfigField('thresholds', 'minLiquidityRatio', Number(e.target.value))} />
+                    <div className="text-[10px] text-gray-500">minLiquidityAmountRatio</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.minLiquidityAmountRatio} onChange={(e) => updateConfigField('thresholds', 'minLiquidityAmountRatio', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">minLiquidityVolumeRatio</div>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={configDraft.thresholds.minLiquidityVolumeRatio ?? ''}
+                      onChange={(e) => updateConfigField('thresholds', 'minLiquidityVolumeRatio', Number(e.target.value))}
+                    />
                   </div>
                   <div>
                     <div className="text-[10px] text-gray-500">realtimeVolSurprise</div>
@@ -1853,6 +1869,10 @@ useEffect(() => {
                   <div>
                     <div className="text-[10px] text-gray-500">newsTrendThreshold</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.newsTrendThreshold} onChange={(e) => updateConfigField('thresholds', 'newsTrendThreshold', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">hysteresisThreshold</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.hysteresisThreshold} onChange={(e) => updateConfigField('thresholds', 'hysteresisThreshold', Number(e.target.value))} />
                   </div>
                 </div>
               </div>
@@ -1875,7 +1895,7 @@ useEffect(() => {
               </div>
             </div>
           )}
-          {!configDraft && <div className="mt-3 text-xs text-gray-500">Loading config...</div>}
+          {!configDraft && <div className="mt-3 text-xs text-gray-500">{t('common.loading')}</div>}
         </div>
       </div>
 

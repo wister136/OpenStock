@@ -6,6 +6,14 @@ import type { RealtimeProvider, RealtimeSignal } from './types';
 
 const DEFAULT_LOOKBACK = 20;
 const CACHE_TTL_MS = 15_000;
+const OPENING_FILTER_MINUTES = 30;
+
+function isOpeningWindow(ts: Date): boolean {
+  // MVP: use server local time for CN market open window (09:30-10:00).
+  const h = ts.getHours();
+  const m = ts.getMinutes();
+  return h === 9 && m < 30 + OPENING_FILTER_MINUTES;
+}
 
 export class BarsRealtimeProvider implements RealtimeProvider {
   private lookback: number;
@@ -37,9 +45,19 @@ export class BarsRealtimeProvider implements RealtimeProvider {
       const sorted = bars.reverse();
       const latest = sorted[sorted.length - 1];
       const prev = sorted.slice(0, -1);
+      const latestDate = latest.ts instanceof Date ? latest.ts : new Date(latest.ts as any);
+      if (isOpeningWindow(latestDate)) {
+        return null;
+      }
 
-      const avgVol = prev.reduce((sum, b: any) => sum + Number(b.volume || 0), 0) / prev.length;
-      const avgAmt = prev.reduce((sum, b: any) => sum + Number(b.amount || 0), 0) / prev.length;
+      const filtered = prev.filter((b: any) => {
+        const dt = b.ts instanceof Date ? b.ts : new Date(b.ts as any);
+        return !isOpeningWindow(dt);
+      });
+      const base = filtered.length >= Math.max(5, this.lookback / 2) ? filtered : prev;
+
+      const avgVol = base.reduce((sum, b: any) => sum + Number(b.volume || 0), 0) / base.length;
+      const avgAmt = base.reduce((sum, b: any) => sum + Number(b.amount || 0), 0) / base.length;
 
       if (!(avgVol > 0)) {
         return null;

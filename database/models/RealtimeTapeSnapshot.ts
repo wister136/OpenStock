@@ -30,6 +30,7 @@ const RealtimeTapeSnapshotSchema = new Schema<IRealtimeTapeSnapshot>(
 );
 
 RealtimeTapeSnapshotSchema.index({ symbol: 1, ts: 1 });
+RealtimeTapeSnapshotSchema.index({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 });
 
 const RealtimeTapeSnapshot =
   models.RealtimeTapeSnapshot ||

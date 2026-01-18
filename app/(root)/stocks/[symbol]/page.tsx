@@ -53,6 +53,25 @@ export default async function StockDetails({
   const { symbol: rawSymbol } = await params;
   const symbol = normalizeSymbol(rawSymbol);
   const tvUrl = tradingViewSymbolPage(symbol);
+  const labels = {
+    home: await tServer('stock.home'),
+    openTradingView: await tServer('stock.openTradingView'),
+    klineTitle: await tServer('stock.klineTitle'),
+    reportTitle: await tServer('stock.reportTitle'),
+    reportDesc: await tServer('stock.reportDesc'),
+    reportNext: await tServer('stock.reportNext'),
+    reportItem1: await tServer('stock.reportItem1'),
+    reportItem2: await tServer('stock.reportItem2'),
+    reportItem3: await tServer('stock.reportItem3'),
+    taPanel: await tServer('stock.taPanel'),
+    profilePanel: await tServer('stock.profilePanel'),
+    financialPanel: await tServer('stock.financialPanel'),
+    newsTitle: await tServer('stock.newsTitle'),
+    newsDesc: await tServer('stock.newsDesc'),
+    mongoHint: await tServer('stock.mongoHint'),
+    klinePanel: await tServer('stock.klinePanel'),
+    baselinePanel: await tServer('stock.baselinePanel'),
+  };
 
   if (isAshareSymbol(symbol)) {
     return (
@@ -62,7 +81,7 @@ export default async function StockDetails({
             <div className="flex flex-col gap-1">
               <div className="text-sm text-gray-400">
                 <Link href="/" className="hover:underline">
-                  {tServer('stock.home')}
+                  {labels.home}
                 </Link>
                 <span className="mx-2 text-gray-600">/</span>
                 <span className="text-gray-300">{symbol}</span>
@@ -77,35 +96,35 @@ export default async function StockDetails({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="rounded-md border border-gray-700 px-3 py-2 text-sm text-gray-200 hover:bg-gray-800"
-                title={tServer('stock.openTradingView')}
+                title={labels.openTradingView}
               >
-                {tServer('stock.openTradingView')} ↗
+                {labels.openTradingView} ↗
               </a>
             </div>
           </div>
 
           <div className="mt-6 space-y-6">
             <ResonanceRecommendationCard symbol={symbol} />
-            <AshareKlinePanel symbol={symbol} title={tServer('stock.klineTitle')} />
+            <AshareKlinePanel symbol={symbol} title={labels.klineTitle} />
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
             <div className="lg:col-span-8 rounded-2xl border border-white/5 bg-black/20 p-6">
-              <h2 className="text-lg font-semibold text-white">{tServer('stock.reportTitle')}</h2>
-              <p className="mt-2 text-sm text-gray-400">{tServer('stock.reportDesc')}</p>
+              <h2 className="text-lg font-semibold text-white">{labels.reportTitle}</h2>
+              <p className="mt-2 text-sm text-gray-400">{labels.reportDesc}</p>
               <div className="mt-4 rounded-xl border border-white/5 bg-white/5 p-4">
-                <div className="text-sm text-gray-300">{tServer('stock.reportNext')}</div>
+                <div className="text-sm text-gray-300">{labels.reportNext}</div>
                 <ul className="mt-2 list-disc pl-5 text-sm text-gray-400 space-y-1">
-                  <li>{tServer('stock.reportItem1')}</li>
-                  <li>{tServer('stock.reportItem2')}</li>
-                  <li>{tServer('stock.reportItem3')}</li>
+                  <li>{labels.reportItem1}</li>
+                  <li>{labels.reportItem2}</li>
+                  <li>{labels.reportItem3}</li>
                 </ul>
               </div>
             </div>
 
             <div className="lg:col-span-4 flex flex-col gap-6">
               <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
-                <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{tServer('stock.taPanel')}</div>
+                <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{labels.taPanel}</div>
                 <TradingViewWidget
                   scriptUrl={`${scriptBase}technical-analysis.js`}
                   config={TECHNICAL_ANALYSIS_WIDGET_CONFIG(symbol)}
@@ -114,7 +133,7 @@ export default async function StockDetails({
               </div>
 
               <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
-                <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{tServer('stock.profilePanel')}</div>
+                <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{labels.profilePanel}</div>
                 <TradingViewWidget
                   scriptUrl={`${scriptBase}company-profile.js`}
                   config={COMPANY_PROFILE_WIDGET_CONFIG(symbol)}
@@ -123,7 +142,7 @@ export default async function StockDetails({
               </div>
 
               <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
-                <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{tServer('stock.financialPanel')}</div>
+                <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{labels.financialPanel}</div>
                 <TradingViewWidget
                   scriptUrl={`${scriptBase}financials.js`}
                   config={COMPANY_FINANCIALS_WIDGET_CONFIG(symbol)}
@@ -132,10 +151,10 @@ export default async function StockDetails({
               </div>
 
               <div className="rounded-2xl border border-white/5 bg-black/20 p-6">
-                <h2 className="text-lg font-semibold text-white">{tServer('stock.newsTitle')}</h2>
-                <p className="mt-2 text-sm text-gray-400">{tServer('stock.newsDesc')}</p>
+                <h2 className="text-lg font-semibold text-white">{labels.newsTitle}</h2>
+                <p className="mt-2 text-sm text-gray-400">{labels.newsDesc}</p>
                 <div className="mt-4 rounded-xl border border-white/5 bg-white/5 p-4">
-                  <div className="text-sm text-gray-300">{tServer('stock.mongoHint')}</div>
+                  <div className="text-sm text-gray-300">{labels.mongoHint}</div>
                   <pre className="mt-2 overflow-auto rounded-lg bg-black/40 p-3 text-xs text-gray-300">
 {`news: {
   symbol: "SSE:603516",
@@ -164,7 +183,7 @@ export default async function StockDetails({
           <div className="flex flex-col gap-1">
             <div className="text-sm text-gray-400">
               <Link href="/" className="hover:underline">
-                {tServer('stock.home')}
+                {labels.home}
               </Link>
               <span className="mx-2 text-gray-600">/</span>
               <span className="text-gray-300">{symbol}</span>
@@ -180,9 +199,9 @@ export default async function StockDetails({
               target="_blank"
               rel="noopener noreferrer"
               className="rounded-md border border-gray-700 px-3 py-2 text-sm text-gray-200 hover:bg-gray-800"
-              title={tServer('stock.openTradingView')}
+              title={labels.openTradingView}
             >
-              {tServer('stock.openTradingView')} ↗
+              {labels.openTradingView} ↗
             </a>
           </div>
         </div>
@@ -198,7 +217,7 @@ export default async function StockDetails({
         <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-12">
           <div className="xl:col-span-8 flex flex-col gap-6">
             <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
-              <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{tServer('stock.klinePanel')}</div>
+              <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{labels.klinePanel}</div>
               <TradingViewWidget
                 scriptUrl={`${scriptBase}advanced-chart.js`}
                 config={CANDLE_CHART_WIDGET_CONFIG(symbol)}
@@ -207,7 +226,7 @@ export default async function StockDetails({
             </div>
 
             <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
-              <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{tServer('stock.baselinePanel')}</div>
+              <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{labels.baselinePanel}</div>
               <TradingViewWidget
                 scriptUrl={`${scriptBase}advanced-chart.js`}
                 config={BASELINE_WIDGET_CONFIG(symbol)}
@@ -218,7 +237,7 @@ export default async function StockDetails({
 
           <div className="xl:col-span-4 flex flex-col gap-6">
             <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
-              <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{tServer('stock.taPanel')}</div>
+              <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{labels.taPanel}</div>
               <TradingViewWidget
                 scriptUrl={`${scriptBase}technical-analysis.js`}
                 config={TECHNICAL_ANALYSIS_WIDGET_CONFIG(symbol)}
@@ -227,7 +246,7 @@ export default async function StockDetails({
             </div>
 
             <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
-              <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{tServer('stock.profilePanel')}</div>
+              <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{labels.profilePanel}</div>
               <TradingViewWidget
                 scriptUrl={`${scriptBase}company-profile.js`}
                 config={COMPANY_PROFILE_WIDGET_CONFIG(symbol)}
@@ -236,7 +255,7 @@ export default async function StockDetails({
             </div>
 
             <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
-              <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{tServer('stock.financialPanel')}</div>
+              <div className="px-2 pb-3 pt-1 text-sm text-gray-300">{labels.financialPanel}</div>
               <TradingViewWidget
                 scriptUrl={`${scriptBase}financials.js`}
                 config={COMPANY_FINANCIALS_WIDGET_CONFIG(symbol)}

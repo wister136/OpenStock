@@ -16,16 +16,20 @@ function formatNumber(n: number | null, digits = 2): string {
 
 export default async function InternalQuotesTable({ rows }: { rows: Row[] }) {
   const quotes = await Promise.all(rows.map((r) => getSimpleQuote(r.symbol)));
+  const tableName = await tServer('table.name');
+  const tableValue = await tServer('table.value');
+  const tableChange = await tServer('table.change');
+  const tableChgPercent = await tServer('table.chgPercent');
 
   return (
     <div className="w-full overflow-x-auto rounded-2xl border border-white/5 bg-[#0f0f0f]">
       <table className="min-w-full text-sm">
         <thead className="text-xs text-gray-400 border-b border-white/5">
           <tr>
-            <th className="text-left p-4 font-medium">{tServer('table.name')}</th>
-            <th className="text-right p-4 font-medium">{tServer('table.value')}</th>
-            <th className="text-right p-4 font-medium">{tServer('table.change')}</th>
-            <th className="text-right p-4 font-medium">{tServer('table.chgPercent')}</th>
+            <th className="text-left p-4 font-medium">{tableName}</th>
+            <th className="text-right p-4 font-medium">{tableValue}</th>
+            <th className="text-right p-4 font-medium">{tableChange}</th>
+            <th className="text-right p-4 font-medium">{tableChgPercent}</th>
           </tr>
         </thead>
         <tbody>

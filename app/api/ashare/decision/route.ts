@@ -50,14 +50,6 @@ function toEpochMillis(ts: unknown): number | null {
   }
 }
 
-function hashString(input: string): string {
-  let hash = 5381;
-  for (let i = 0; i < input.length; i++) {
-    hash = (hash * 33) ^ input.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(16);
-}
-
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const symbol = normalizeSymbol(searchParams.get('symbol'));
@@ -85,8 +77,8 @@ export async function GET(req: Request) {
     }
     const normalized = normalizeConfig(config, userId, symbol);
 
-    const configHash = hashString(JSON.stringify(normalized));
-    const cacheKey = `${symbol}|${tf}|${limit}|${configHash}`;
+    const configUpdatedAt = config?.updatedAt ? new Date(config.updatedAt as any).getTime() : 0;
+    const cacheKey = `${userId}|${symbol}|${tf}|${limit}|${configUpdatedAt}`;
     const cached = cache.get(cacheKey);
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       return NextResponse.json(cached.data);
@@ -110,11 +102,16 @@ export async function GET(req: Request) {
       })
       .filter(Boolean) as Array<{ ts: number; open: number; high: number; low: number; close: number; volume: number; amount?: number }>;
 
+    if (bars.length < 60) {
+      return NextResponse.json({ ok: false, error: 'Insufficient bars (min 60)' }, { status: 400 });
+    }
+
     const decision = await getDecision({
       symbol,
       timeframe: tf,
       bars,
       config: normalized,
+      userId,
       overrides: {
         mockNewsScore: searchParams.get('mockNewsScore') ? Number(searchParams.get('mockNewsScore')) : undefined,
         mockNewsConfidence: searchParams.get('mockNewsConfidence') ? Number(searchParams.get('mockNewsConfidence')) : undefined,
@@ -127,6 +124,7 @@ export async function GET(req: Request) {
       tf,
       decision,
       config: normalized,
+      serverTime: decision.serverTime,
     };
 
     cache.set(cacheKey, { ts: Date.now(), data: response });

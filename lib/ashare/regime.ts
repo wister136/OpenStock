@@ -9,35 +9,14 @@ export type RegimeInputs = {
   news?: NewsSignal | null;
   realtime?: RealtimeSignal | null;
   config: StrategyConfig;
+  lastRegime?: MarketRegime | null;
 };
 
 type RegimeScores = { trend: number; range: number; panic: number };
 
-type RegimeState = { stable: MarketRegime; recent: MarketRegime[] };
-
-const hysteresisMap = new Map<string, RegimeState>();
-const HYSTERESIS_BARS = 5;
-
 function clamp01(v: number): number {
   if (!Number.isFinite(v)) return 0;
   return Math.max(0, Math.min(1, v));
-}
-
-function applyHysteresis(symbol: string, candidate: MarketRegime, reasons: string[]): MarketRegime {
-  const state = hysteresisMap.get(symbol) ?? { stable: candidate, recent: [] };
-  state.recent.push(candidate);
-  if (state.recent.length > HYSTERESIS_BARS) state.recent.shift();
-
-  const allSame = state.recent.length >= HYSTERESIS_BARS && state.recent.every((r) => r === candidate);
-  if (candidate !== state.stable && !allSame) {
-    reasons.push('Hysteresis: waiting for regime stability');
-  } else if (candidate !== state.stable && allSame) {
-    state.stable = candidate;
-    reasons.push('Hysteresis: regime switch confirmed');
-  }
-
-  hysteresisMap.set(symbol, state);
-  return state.stable;
 }
 
 export function detectRegime(inputs: RegimeInputs): {
@@ -46,8 +25,9 @@ export function detectRegime(inputs: RegimeInputs): {
   scores: RegimeScores;
   metrics: Record<string, number>;
   reasons: string[];
+  external_used: { news: boolean; realtime: boolean };
 } {
-  const { bars, news, realtime, config } = inputs;
+  const { bars, news, realtime, config, lastRegime } = inputs;
   const reasons: string[] = [];
 
   if (!bars.length) {
@@ -86,11 +66,11 @@ export function detectRegime(inputs: RegimeInputs): {
   const peak = rollingMaxArr[lastIdx] ?? currClose;
   const drawdown = peak > 0 ? currClose / peak - 1 : 0;
 
-  const trendScale = Math.max(0.2, Math.abs(config.thresholds.trendScore) * 0.6);
+  const trendScale = Math.max(0.2, Math.abs(config.thresholds.trendScoreThreshold) * 0.6);
   const panicVolScale = Math.max(0.3, Math.abs(config.thresholds.panicVolRatio) * 0.5);
   const panicDdScale = Math.max(0.02, Math.abs(config.thresholds.panicDrawdown) * 0.5);
 
-  const scoreTrendK = clamp01((trendScore - config.thresholds.trendScore) / trendScale);
+  const scoreTrendK = clamp01((trendScore - config.thresholds.trendScoreThreshold) / trendScale);
   const scorePanicK = clamp01(
     (volRatio - config.thresholds.panicVolRatio) / panicVolScale +
       (-drawdown - config.thresholds.panicDrawdown) / panicDdScale
@@ -113,16 +93,26 @@ export function detectRegime(inputs: RegimeInputs): {
   }
 
   let scorePanicRT = 0;
+  let scoreTrendRT = 0;
   if (realtime) {
     const surprise = Math.max(realtime.volSurprise, realtime.amtSurprise);
     const rtScale = Math.max(0.1, Math.max(config.thresholds.realtimeVolSurprise, config.thresholds.realtimeAmtSurprise));
-    scorePanicRT = clamp01(surprise / rtScale);
-    if (scorePanicRT > 0) reasons.push('Realtime volume/amount surprise detected');
+    const lastClose = closes[lastIdx] ?? 0;
+    const prevClose = closes[lastIdx - 1] ?? lastClose;
+    const priceUp = lastClose >= prevClose;
+
+    if (surprise > 0 && priceUp && lastClose > ma60) {
+      scoreTrendRT = clamp01(surprise / rtScale);
+      reasons.push('Realtime surprise confirms trend direction');
+    } else if (surprise > 0 && !priceUp && lastClose < ma60) {
+      scorePanicRT = clamp01(surprise / rtScale);
+      reasons.push('Realtime surprise indicates downside risk');
+    }
   } else {
     reasons.push('Realtime signal missing -> degrade to Kline only');
   }
 
-  const trend = config.weights.w_trend * scoreTrendK + config.weights.w_news * scoreTrendNews;
+  const trend = config.weights.w_trend * scoreTrendK + config.weights.w_news * scoreTrendNews + config.weights.w_realtime * scoreTrendRT;
   const panic = config.weights.w_panic * scorePanicK + config.weights.w_news * scorePanicNews + config.weights.w_realtime * scorePanicRT;
   const range = config.weights.w_range * scoreRangeK;
 
@@ -134,7 +124,11 @@ export function detectRegime(inputs: RegimeInputs): {
   if (scores.panic >= scores.trend && scores.panic >= scores.range) candidate = 'PANIC';
   else if (scores.trend >= scores.range) candidate = 'TREND';
 
-  const regime = applyHysteresis(config.symbol, candidate, reasons);
+  let regime = candidate;
+  if (lastRegime && candidate !== lastRegime && confidence < config.thresholds.hysteresisThreshold) {
+    regime = lastRegime;
+    reasons.push('Hysteresis hold: confidence below threshold');
+  }
 
   return {
     regime,
@@ -153,7 +147,9 @@ export function detectRegime(inputs: RegimeInputs): {
       scoreTrendNews,
       scorePanicNews,
       scorePanicRT,
+      scoreTrendRT,
     },
     reasons,
+    external_used: { news: Boolean(news), realtime: Boolean(realtime) },
   };
 }

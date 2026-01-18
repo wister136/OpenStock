@@ -12,7 +12,7 @@ export interface INewsSentimentSnapshot extends Document {
 
 const NewsSentimentSnapshotSchema = new Schema<INewsSentimentSnapshot>(
   {
-    symbol: { type: String, required: false, uppercase: true, trim: true, index: true },
+    symbol: { type: String, required: false, uppercase: true, trim: true, index: true, default: 'GLOBAL' },
     ts: { type: Number, required: true, index: true },
     score: { type: Number, required: true },
     confidence: { type: Number, required: true },

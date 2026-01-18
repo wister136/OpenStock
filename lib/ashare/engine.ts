@@ -3,6 +3,7 @@ import type { Bar } from '@/lib/ashare/indicators';
 import type { NewsProvider, NewsSignal, RealtimeProvider, RealtimeSignal } from '@/lib/ashare/providers/types';
 import { detectRegime, type MarketRegime } from '@/lib/ashare/regime';
 import { MockNewsProvider } from '@/lib/ashare/providers/news_mock';
+import { DbNewsProvider } from '@/lib/ashare/providers/news_db';
 import { ExternalNewsProvider } from '@/lib/ashare/providers/news_external';
 import { BarsRealtimeProvider } from '@/lib/ashare/providers/realtime_from_bars';
 import { meanReversionStrategy } from '@/lib/ashare/strategies/meanReversion';
@@ -23,6 +24,7 @@ export type Decision = {
     realtime?: { volSurprise: number; amtSurprise: number; ts: number };
   };
   reasons: string[];
+  serverTime: number;
 };
 
 export type DecisionInputs = {
@@ -30,6 +32,7 @@ export type DecisionInputs = {
   timeframe: '1m' | '5m' | '15m' | '30m' | '60m' | '1d';
   bars: Bar[];
   config: StrategyConfig;
+  userId: string;
   providers?: {
     news?: NewsProvider[];
     realtime?: RealtimeProvider[];
@@ -72,11 +75,15 @@ async function getRealtimeSignal(
 }
 
 export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
-  const { symbol, timeframe, bars, config } = inputs;
+  const { symbol, timeframe, bars, config, userId } = inputs;
 
   const newsProviders =
     inputs.providers?.news ??
-    [new ExternalNewsProvider(), new MockNewsProvider({ score: inputs.overrides?.mockNewsScore, confidence: inputs.overrides?.mockNewsConfidence })];
+    [
+      new DbNewsProvider(),
+      new ExternalNewsProvider(),
+      new MockNewsProvider({ score: inputs.overrides?.mockNewsScore, confidence: inputs.overrides?.mockNewsConfidence }),
+    ];
   const realtimeProviders = inputs.providers?.realtime ?? [new BarsRealtimeProvider()];
 
   let news = await getNewsSignal(symbol, newsProviders);
@@ -98,7 +105,11 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
     staleReasons.push('Realtime signal stale -> degrade to Kline only');
   }
 
-  const regimeRes = detectRegime({ bars, news, realtime, config });
+  const { default: DecisionSnapshot } = await import('@/database/models/DecisionSnapshot');
+  const lastSnapshot = await DecisionSnapshot.findOne({ userId, symbol, timeframe }).sort({ ts: -1 }).lean();
+  const lastRegime = (lastSnapshot?.regime as MarketRegime | undefined) ?? null;
+
+  const regimeRes = detectRegime({ bars, news, realtime, config, lastRegime });
 
   const strategyKey = pickStrategy(regimeRes.regime);
   let strategyDecision =
@@ -111,11 +122,26 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
   const reasons = [...regimeRes.reasons, ...staleReasons, ...strategyDecision.reasons];
 
   // Execution guards
-  const minLiquidity = config.thresholds.minLiquidityRatio;
-  const volRatio = regimeRes.metrics.volRatio ?? 0;
-  if (volRatio < minLiquidity) {
-    reasons.push(`Liquidity filter: volRatio ${volRatio.toFixed(2)} < ${minLiquidity}`);
-    strategyDecision = { action: 'HOLD', reasons: strategyDecision.reasons };
+  const amountArr = bars.map((b) => (b.amount == null ? NaN : Number(b.amount)));
+  const volumeArr = bars.map((b) => Number(b.volume));
+  const lastAmount = amountArr[amountArr.length - 1];
+  const lastVolume = volumeArr[volumeArr.length - 1];
+  const amountAvg = amountArr.slice(-20).filter(Number.isFinite).reduce((a, b) => a + b, 0) / Math.max(1, amountArr.slice(-20).filter(Number.isFinite).length);
+  const volumeAvg = volumeArr.slice(-20).reduce((a, b) => a + b, 0) / Math.max(1, volumeArr.slice(-20).length);
+
+  if (Number.isFinite(lastAmount) && Number.isFinite(amountAvg) && amountAvg > 0) {
+    const ratio = lastAmount / amountAvg;
+    if (ratio < config.thresholds.minLiquidityAmountRatio) {
+      reasons.push(`Liquidity filter: amount ratio ${ratio.toFixed(2)} < ${config.thresholds.minLiquidityAmountRatio}`);
+      strategyDecision = { action: 'HOLD', reasons: strategyDecision.reasons };
+    }
+  } else if (Number.isFinite(lastVolume) && Number.isFinite(volumeAvg) && volumeAvg > 0) {
+    const ratio = lastVolume / volumeAvg;
+    const minVol = config.thresholds.minLiquidityVolumeRatio ?? config.thresholds.minLiquidityAmountRatio;
+    if (ratio < minVol) {
+      reasons.push(`Liquidity filter: volume ratio ${ratio.toFixed(2)} < ${minVol}`);
+      strategyDecision = { action: 'HOLD', reasons: strategyDecision.reasons };
+    }
   }
 
   const last = decisionCooldown.get(symbol);
@@ -124,6 +150,7 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
     strategyDecision = { action: 'HOLD', reasons: strategyDecision.reasons };
   }
 
+  const volRatio = regimeRes.metrics.volRatio ?? 0;
   if (volRatio < config.thresholds.volRatioLow && strategyDecision.action !== 'HOLD') {
     reasons.push('Cost filter: low volume regime, hold');
     strategyDecision = { action: 'HOLD', reasons: strategyDecision.reasons };
@@ -141,7 +168,7 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
   const positionCap =
     regimeRes.regime === 'TREND' ? config.positionCaps.trend : regimeRes.regime === 'RANGE' ? config.positionCaps.range : config.positionCaps.panic;
 
-  return {
+  const decision: Decision = {
     regime: regimeRes.regime,
     regime_confidence: regimeRes.confidence,
     strategy: strategyKey,
@@ -154,5 +181,24 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
       realtime: realtime ? { volSurprise: realtime.volSurprise, amtSurprise: realtime.amtSurprise, ts: realtime.ts } : undefined,
     },
     reasons,
+    serverTime: now,
   };
+
+  if (!lastSnapshot || now - lastSnapshot.ts > 60_000) {
+    await DecisionSnapshot.create({
+      userId,
+      symbol,
+      timeframe,
+      ts: now,
+      regime: decision.regime,
+      strategy: decision.strategy,
+      action: decision.action,
+      confidence: decision.regime_confidence,
+      position_cap: decision.position_cap,
+      metrics: decision.metrics,
+      external_signals: decision.external_signals,
+    });
+  }
+
+  return decision;
 }

@@ -11,13 +11,14 @@ function format(template: string, vars?: Vars) {
   });
 }
 
-export function getServerLang(): Lang {
-  const stored = cookies().get('openstock_locale')?.value;
+export async function getServerLang(): Promise<Lang> {
+  const cookieStore = await cookies();
+  const stored = cookieStore.get('openstock_locale')?.value;
   return stored === 'zh' || stored === 'en' ? stored : DEFAULT_LANG;
 }
 
-export function tServer(key: string, vars?: Vars): string {
-  const lang = getServerLang();
+export async function tServer(key: string, vars?: Vars): Promise<string> {
+  const lang = await getServerLang();
   const dict = MESSAGES[lang] ?? MESSAGES[DEFAULT_LANG];
   const raw = dict[key] ?? MESSAGES[DEFAULT_LANG][key] ?? key;
   return format(raw, vars);
