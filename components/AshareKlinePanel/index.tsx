@@ -264,6 +264,10 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
   const [dlgQuery, setDlgQuery] = useState('');
   const [strategySort, setStrategySort] = useState<'winRate' | 'tradeCount' | 'netProfitPct'>('winRate');
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
+  const [autoStrategy, setAutoStrategy] = useState<boolean>(() => {
+    const stored = safeLocalStorageGet('openstock_auto_strategy_v1');
+    return stored === true;
+  });
 
   const mainContainerRef = useRef<HTMLDivElement | null>(null);
   const rsiContainerRef = useRef<HTMLDivElement | null>(null);
@@ -306,6 +310,17 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
   useEffect(() => {
     safeLocalStorageSet('openstock_tv_favs_v1', favorites);
   }, [favorites]);
+
+  useEffect(() => {
+    safeLocalStorageSet('openstock_auto_strategy_v1', autoStrategy);
+  }, [autoStrategy]);
+
+  useEffect(() => {
+    if (!autoStrategy) return;
+    const top = recommendations[0];
+    if (!top?.key) return;
+    if (strategy !== top.key) setStrategy(top.key);
+  }, [autoStrategy, recommendations, strategy]);
 
   const derived = useMemo(() => {
     const closes = bars.map((b) => b.c);
@@ -1456,6 +1471,25 @@ useEffect(() => {
           <div className="text-xs text-gray-400">策略</div>
           <div className="mt-2 text-sm text-gray-100">{STRATEGY_OPTIONS.find((s) => s.key === strategy)?.label ?? strategy}</div>
           <div className="mt-1 text-xs text-gray-500">{strategyCalc.status ?? '选择一个策略以显示 买入/卖出 信号（可在弹窗查看回测）'}</div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant={autoStrategy ? 'secondary' : 'ghost'}
+              size="sm"
+              className={cn(
+                'rounded-full text-[10px]',
+                autoStrategy ? 'bg-yellow-500/15 text-yellow-200 hover:bg-yellow-500/25' : 'text-gray-300'
+              )}
+              onClick={() => setAutoStrategy((prev) => !prev)}
+            >
+              动态策略 {autoStrategy ? '开' : '关'}
+            </Button>
+            {autoStrategy && recommendations[0] && (
+              <span className="text-[10px] text-yellow-400/90">
+                推荐：{recommendations[0].label}
+              </span>
+            )}
+          </div>
           {strategy !== 'none' && strategySummaryMap[strategy] && (
             <div className="mt-1 text-xs text-gray-500">
               胜率 {strategySummaryMap[strategy].tradeCount > 0 && Number.isFinite(strategySummaryMap[strategy].winRate) ? `${fmt(strategySummaryMap[strategy].winRate, 2)}%` : '--'}
