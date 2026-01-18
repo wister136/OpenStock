@@ -37,6 +37,7 @@ export function detectRegime(inputs: RegimeInputs): {
       scores: { trend: 0, range: 1, panic: 0 },
       metrics: {},
       reasons: ['No bars available, fallback to RANGE'],
+      external_used: { news: false, realtime: false },
     };
   }
 
@@ -88,8 +89,6 @@ export function detectRegime(inputs: RegimeInputs): {
       scoreTrendNews = clamp01(news.score * news.confidence);
       reasons.push('News sentiment supports trend');
     }
-  } else {
-    reasons.push('News sentiment missing -> degrade to Kline only');
   }
 
   let scorePanicRT = 0;
@@ -108,8 +107,6 @@ export function detectRegime(inputs: RegimeInputs): {
       scorePanicRT = clamp01(surprise / rtScale);
       reasons.push('Realtime surprise indicates downside risk');
     }
-  } else {
-    reasons.push('Realtime signal missing -> degrade to Kline only');
   }
 
   const trend = config.weights.w_trend * scoreTrendK + config.weights.w_news * scoreTrendNews + config.weights.w_realtime * scoreTrendRT;

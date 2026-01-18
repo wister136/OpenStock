@@ -1,5 +1,6 @@
 import { connectToDatabase } from '@/database/mongoose';
 import NewsSentimentSnapshot from '@/database/models/NewsSentimentSnapshot';
+import { normalizeSymbol } from '@/lib/ashare/symbol';
 
 import type { NewsProvider, NewsSignal } from './types';
 
@@ -33,6 +34,7 @@ function simpleSentimentScore(texts: string[]): { score: number; keywords: strin
 
 export class ExternalNewsProvider implements NewsProvider {
   async getNewsSignal(args: { symbol: string }): Promise<NewsSignal | null> {
+    const symbol = normalizeSymbol(args.symbol);
     const endpoint = process.env.NEWS_ENDPOINT;
     const apiKey = process.env.NEWS_API_KEY;
     const timeoutMs = Number(process.env.NEWS_TIMEOUT_MS ?? 2500);
@@ -40,12 +42,12 @@ export class ExternalNewsProvider implements NewsProvider {
 
     try {
       await connectToDatabase();
-      const cached = await NewsSentimentSnapshot.findOne({ symbol: args.symbol }).sort({ ts: -1 }).lean();
+      const cached = await NewsSentimentSnapshot.findOne({ symbol }).sort({ ts: -1 }).lean();
       if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
         return { score: cached.score, confidence: cached.confidence, ts: cached.ts, sources: cached.sources };
       }
 
-      const url = `${endpoint}${endpoint.includes('?') ? '&' : '?'}symbol=${encodeURIComponent(args.symbol)}`;
+      const url = `${endpoint}${endpoint.includes('?') ? '&' : '?'}symbol=${encodeURIComponent(symbol)}`;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), Number.isFinite(timeoutMs) ? timeoutMs : 2500);
       const res = await fetch(url, {
@@ -69,7 +71,7 @@ export class ExternalNewsProvider implements NewsProvider {
       const ts = Date.now();
 
       await NewsSentimentSnapshot.create({
-        symbol: args.symbol,
+        symbol,
         ts,
         score,
         confidence,

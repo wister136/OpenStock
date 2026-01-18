@@ -207,6 +207,35 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
     return new Date(ts).toLocaleTimeString();
   };
 
+  const translateReason = useCallback(
+    (reason: string) => {
+      const map: Record<string, string> = {
+        'News sentiment indicates panic risk': 'ashare.reason.newsPanic',
+        'News sentiment supports trend': 'ashare.reason.newsTrend',
+        'Realtime surprise confirms trend direction': 'ashare.reason.realtimeTrend',
+        'Realtime surprise indicates downside risk': 'ashare.reason.realtimeDownside',
+        'Hysteresis hold: confidence below threshold': 'ashare.reason.hysteresisHold',
+        'News signal unavailable (missing or stale) -> fallback to Kline': 'ashare.reason.newsUnavailable',
+        'Realtime signal unavailable (missing or stale) -> fallback to Kline': 'ashare.reason.realtimeUnavailable',
+        'RSI neutral zone': 'ashare.reason.rsiNeutral',
+        'RSI oversold': 'ashare.reason.rsiOversold',
+        'RSI overbought': 'ashare.reason.rsiOverbought',
+        'Price above EMA20/EMA60 with positive slope': 'ashare.reason.tsmomUp',
+        'Price below EMA20': 'ashare.reason.tsmomDown',
+        'TSMOM neutral signal': 'ashare.reason.tsmomNeutral',
+        'Risk-off: price below EMA20': 'ashare.reason.riskOffSell',
+        'Risk-off: hold cash': 'ashare.reason.riskOffHold',
+        'PANIC regime: BUY disabled': 'ashare.reason.panicNoBuy',
+        'Cooldown active: hold to avoid over-trading': 'ashare.reason.cooldown',
+        'Cost filter: low volume regime, hold': 'ashare.reason.costHold',
+      };
+      const key = map[reason];
+      if (!key) return reason;
+      return t(key);
+    },
+    [t]
+  );
+
   const [freq, setFreq] = useState<AllowedFreq>('30m');
   const [loading, setLoading] = useState(false);
   const [bars, setBars] = useState<OHLCVBar[]>([]);
@@ -1732,7 +1761,7 @@ useEffect(() => {
           <div className="mt-3 text-xs text-gray-400">{t('ashare.panel.reasons')}</div>
           <div className="mt-1 space-y-1 text-xs text-gray-300">
             {(decision?.reasons ?? []).slice(0, showAllReasons ? undefined : 3).map((r, i) => (
-              <div key={`${r}-${i}`}>- {r}</div>
+              <div key={`${r}-${i}`}>- {translateReason(r)}</div>
             ))}
             {(decision?.reasons ?? []).length === 0 && <div>--</div>}
           </div>
@@ -1794,59 +1823,59 @@ useEffect(() => {
           {showParams && configDraft && (
             <div className="mt-3 space-y-3 text-xs">
               <div>
-                <div className="text-gray-400">weights</div>
+                <div className="text-gray-400">{t('ashare.panel.weights')}</div>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
-                    <div className="text-[10px] text-gray-500">w_trend</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.weightTrend')}</div>
                     <Input type="number" step="0.01" value={configDraft.weights.w_trend} onChange={(e) => updateConfigField('weights', 'w_trend', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">w_range</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.weightRange')}</div>
                     <Input type="number" step="0.01" value={configDraft.weights.w_range} onChange={(e) => updateConfigField('weights', 'w_range', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">w_panic</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.weightPanic')}</div>
                     <Input type="number" step="0.01" value={configDraft.weights.w_panic} onChange={(e) => updateConfigField('weights', 'w_panic', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">w_news</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.weightNews')}</div>
                     <Input type="number" step="0.01" value={configDraft.weights.w_news} onChange={(e) => updateConfigField('weights', 'w_news', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">w_realtime</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.weightRealtime')}</div>
                     <Input type="number" step="0.01" value={configDraft.weights.w_realtime} onChange={(e) => updateConfigField('weights', 'w_realtime', Number(e.target.value))} />
                   </div>
                 </div>
               </div>
               <div>
-                <div className="text-gray-400">thresholds</div>
+                <div className="text-gray-400">{t('ashare.panel.thresholds')}</div>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
-                    <div className="text-[10px] text-gray-500">trendScoreThreshold</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.trendScoreThreshold')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.trendScoreThreshold} onChange={(e) => updateConfigField('thresholds', 'trendScoreThreshold', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">panicVolRatio</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.panicVolRatio')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.panicVolRatio} onChange={(e) => updateConfigField('thresholds', 'panicVolRatio', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">panicDrawdown</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.panicDrawdown')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.panicDrawdown} onChange={(e) => updateConfigField('thresholds', 'panicDrawdown', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">volRatioLow</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.volRatioLow')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.volRatioLow} onChange={(e) => updateConfigField('thresholds', 'volRatioLow', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">volRatioHigh</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.volRatioHigh')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.volRatioHigh} onChange={(e) => updateConfigField('thresholds', 'volRatioHigh', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">minLiquidityAmountRatio</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.minLiquidityAmountRatio')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.minLiquidityAmountRatio} onChange={(e) => updateConfigField('thresholds', 'minLiquidityAmountRatio', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">minLiquidityVolumeRatio</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.minLiquidityVolumeRatio')}</div>
                     <Input
                       type="number"
                       step="0.01"
@@ -1855,40 +1884,40 @@ useEffect(() => {
                     />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">realtimeVolSurprise</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.realtimeVolSurprise')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.realtimeVolSurprise} onChange={(e) => updateConfigField('thresholds', 'realtimeVolSurprise', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">realtimeAmtSurprise</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.realtimeAmtSurprise')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.realtimeAmtSurprise} onChange={(e) => updateConfigField('thresholds', 'realtimeAmtSurprise', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">newsPanicThreshold</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.newsPanicThreshold')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.newsPanicThreshold} onChange={(e) => updateConfigField('thresholds', 'newsPanicThreshold', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">newsTrendThreshold</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.newsTrendThreshold')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.newsTrendThreshold} onChange={(e) => updateConfigField('thresholds', 'newsTrendThreshold', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">hysteresisThreshold</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.hysteresisThreshold')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.hysteresisThreshold} onChange={(e) => updateConfigField('thresholds', 'hysteresisThreshold', Number(e.target.value))} />
                   </div>
                 </div>
               </div>
               <div>
-                <div className="text-gray-400">positionCaps</div>
+                <div className="text-gray-400">{t('ashare.panel.positionCaps')}</div>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
-                    <div className="text-[10px] text-gray-500">trend</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.positionTrend')}</div>
                     <Input type="number" step="0.01" value={configDraft.positionCaps.trend} onChange={(e) => updateConfigField('positionCaps', 'trend', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">range</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.positionRange')}</div>
                     <Input type="number" step="0.01" value={configDraft.positionCaps.range} onChange={(e) => updateConfigField('positionCaps', 'range', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">panic</div>
+                    <div className="text-[10px] text-gray-500">{t('ashare.panel.positionPanic')}</div>
                     <Input type="number" step="0.01" value={configDraft.positionCaps.panic} onChange={(e) => updateConfigField('positionCaps', 'panic', Number(e.target.value))} />
                   </div>
                 </div>

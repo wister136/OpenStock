@@ -8,10 +8,10 @@ export interface IRealtimeTapeSnapshot extends Document {
   timeframe: RealtimeTimeframe;
   volume: number;
   amount: number;
-  expectedVolume: number;
-  expectedAmount: number;
-  volSurprise: number;
-  amtSurprise: number;
+  expectedVolume?: number;
+  expectedAmount?: number;
+  volSurprise?: number;
+  amtSurprise?: number;
 }
 
 const RealtimeTapeSnapshotSchema = new Schema<IRealtimeTapeSnapshot>(
@@ -21,10 +21,10 @@ const RealtimeTapeSnapshotSchema = new Schema<IRealtimeTapeSnapshot>(
     timeframe: { type: String, required: true, trim: true },
     volume: { type: Number, required: true },
     amount: { type: Number, required: true },
-    expectedVolume: { type: Number, required: true },
-    expectedAmount: { type: Number, required: true },
-    volSurprise: { type: Number, required: true },
-    amtSurprise: { type: Number, required: true },
+    expectedVolume: { type: Number, required: false, default: undefined },
+    expectedAmount: { type: Number, required: false, default: undefined },
+    volSurprise: { type: Number, required: false, default: undefined },
+    amtSurprise: { type: Number, required: false, default: undefined },
   },
   { timestamps: true }
 );

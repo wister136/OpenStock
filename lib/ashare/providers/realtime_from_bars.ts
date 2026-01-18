@@ -1,6 +1,7 @@
 import { connectToDatabase } from '@/database/mongoose';
 import AshareBar from '@/database/models/ashareBar.model';
 import RealtimeTapeSnapshot from '@/database/models/RealtimeTapeSnapshot';
+import { normalizeSymbol } from '@/lib/ashare/symbol';
 
 import type { RealtimeProvider, RealtimeSignal } from './types';
 
@@ -23,14 +24,21 @@ export class BarsRealtimeProvider implements RealtimeProvider {
   }
 
   async getRealtimeSignal(args: { symbol: string; timeframe: '1m' | '5m' }): Promise<RealtimeSignal | null> {
-    const { symbol, timeframe } = args;
+    const symbol = normalizeSymbol(args.symbol);
+    const { timeframe } = args;
     const now = Date.now();
 
     try {
       await connectToDatabase();
       const cached = await RealtimeTapeSnapshot.findOne({ symbol, timeframe }).sort({ ts: -1 }).lean();
       if (cached && now - cached.ts < CACHE_TTL_MS) {
-        return { volSurprise: cached.volSurprise, amtSurprise: cached.amtSurprise, ts: cached.ts };
+        if (Number.isFinite(cached.volSurprise) || Number.isFinite(cached.amtSurprise)) {
+          return {
+            volSurprise: cached.volSurprise ?? 0,
+            amtSurprise: cached.amtSurprise ?? 0,
+            ts: cached.ts,
+          };
+        }
       }
 
       const bars = await AshareBar.find({ symbol, freq: timeframe })

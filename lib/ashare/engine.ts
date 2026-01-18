@@ -2,6 +2,7 @@ import type { StrategyConfig } from '@/lib/ashare/config';
 import type { Bar } from '@/lib/ashare/indicators';
 import type { NewsProvider, NewsSignal, RealtimeProvider, RealtimeSignal } from '@/lib/ashare/providers/types';
 import { detectRegime, type MarketRegime } from '@/lib/ashare/regime';
+import { normalizeSymbol } from '@/lib/ashare/symbol';
 import { MockNewsProvider } from '@/lib/ashare/providers/news_mock';
 import { DbNewsProvider } from '@/lib/ashare/providers/news_db';
 import { ExternalNewsProvider } from '@/lib/ashare/providers/news_external';
@@ -25,6 +26,7 @@ export type Decision = {
   };
   reasons: string[];
   serverTime: number;
+  external_used: { news: boolean; realtime: boolean };
 };
 
 export type DecisionInputs = {
@@ -45,7 +47,7 @@ export type DecisionInputs = {
 
 const decisionCooldown = new Map<string, { ts: number; action: StrategyAction }>();
 const COOLDOWN_MS = 30_000;
-const NEWS_STALE_MS = 30 * 60 * 1000;
+const NEWS_STALE_MS = 4 * 60 * 60 * 1000;
 const REALTIME_STALE_MS: Record<'1m' | '5m', number> = { '1m': 3 * 60 * 1000, '5m': 6 * 60 * 1000 };
 
 function pickStrategy(regime: MarketRegime): 'TSMOM' | 'MEAN_REVERSION' | 'RISK_OFF' {
@@ -75,7 +77,8 @@ async function getRealtimeSignal(
 }
 
 export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
-  const { symbol, timeframe, bars, config, userId } = inputs;
+  const symbol = normalizeSymbol(inputs.symbol);
+  const { timeframe, bars, config, userId } = inputs;
 
   const newsProviders =
     inputs.providers?.news ??
@@ -95,15 +98,10 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
   }
 
   const now = Date.now();
-  const staleReasons: string[] = [];
-  if (news && now - news.ts > NEWS_STALE_MS) {
-    news = null;
-    staleReasons.push('News sentiment stale -> degrade to Kline only');
-  }
-  if (realtime && now - realtime.ts > REALTIME_STALE_MS[timeframe === '5m' ? '5m' : '1m']) {
-    realtime = null;
-    staleReasons.push('Realtime signal stale -> degrade to Kline only');
-  }
+  const newsUnavailable = !news || now - news.ts > NEWS_STALE_MS;
+  if (newsUnavailable) news = null;
+  const realtimeUnavailable = !realtime || now - realtime.ts > REALTIME_STALE_MS[timeframe === '5m' ? '5m' : '1m'];
+  if (realtimeUnavailable) realtime = null;
 
   const { default: DecisionSnapshot } = await import('@/database/models/DecisionSnapshot');
   const lastSnapshot = await DecisionSnapshot.findOne({ userId, symbol, timeframe }).sort({ ts: -1 }).lean();
@@ -119,7 +117,9 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
         ? meanReversionStrategy({ bars, config })
         : riskOffStrategy({ bars, config });
 
-  const reasons = [...regimeRes.reasons, ...staleReasons, ...strategyDecision.reasons];
+  const reasons: string[] = [...regimeRes.reasons, ...strategyDecision.reasons];
+  if (newsUnavailable) reasons.push('News signal unavailable (missing or stale) -> fallback to Kline');
+  if (realtimeUnavailable) reasons.push('Realtime signal unavailable (missing or stale) -> fallback to Kline');
 
   // Execution guards
   const amountArr = bars.map((b) => (b.amount == null ? NaN : Number(b.amount)));
@@ -168,6 +168,7 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
   const positionCap =
     regimeRes.regime === 'TREND' ? config.positionCaps.trend : regimeRes.regime === 'RANGE' ? config.positionCaps.range : config.positionCaps.panic;
 
+  const dedupedReasons = Array.from(new Set(reasons)).slice(0, 5);
   const decision: Decision = {
     regime: regimeRes.regime,
     regime_confidence: regimeRes.confidence,
@@ -180,8 +181,9 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
       news: news ? { score: news.score, confidence: news.confidence, ts: news.ts } : undefined,
       realtime: realtime ? { volSurprise: realtime.volSurprise, amtSurprise: realtime.amtSurprise, ts: realtime.ts } : undefined,
     },
-    reasons,
+    reasons: dedupedReasons,
     serverTime: now,
+    external_used: { news: Boolean(news), realtime: Boolean(realtime) },
   };
 
   if (!lastSnapshot || now - lastSnapshot.ts > 60_000) {
