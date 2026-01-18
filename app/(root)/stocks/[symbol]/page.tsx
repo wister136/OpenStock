@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import AshareKlinePanel from '@/components/AshareKlinePanel';
+import ResonanceRecommendationCard from '@/components/ResonanceRecommendationCard';
 import TradingViewWidget from '@/components/TradingViewWidget';
 import WatchlistButton from '@/components/WatchlistButton';
 import {
@@ -87,7 +88,8 @@ export default async function StockDetails({
             </div>
           </div>
 
-          <div className="mt-6">
+          <div className="mt-6 space-y-6">
+            <ResonanceRecommendationCard symbol={symbol} />
             <AshareKlinePanel symbol={symbol} title="K线与成交量（站内渲染）" />
           </div>
 
