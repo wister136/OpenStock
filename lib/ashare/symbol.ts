@@ -1,3 +1,5 @@
+export function normalizeSymbol(input: string): string;
+export function normalizeSymbol(input: unknown): string;
 export function normalizeSymbol(input: unknown): string {
   if (typeof input !== 'string') return 'GLOBAL';
   const raw = input.trim().toUpperCase();
