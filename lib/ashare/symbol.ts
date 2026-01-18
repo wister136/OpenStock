@@ -1,6 +1,7 @@
-export function normalizeSymbol(input: string): string {
-  const raw = (input || '').trim().toUpperCase();
-  if (!raw) return raw;
+export function normalizeSymbol(input: unknown): string {
+  if (typeof input !== 'string') return 'GLOBAL';
+  const raw = input.trim().toUpperCase();
+  if (!raw) return 'GLOBAL';
   if (raw.includes(':')) return raw;
   if (/^\d{6}$/.test(raw)) {
     return raw.startsWith('6') ? `SSE:${raw}` : `SZSE:${raw}`;

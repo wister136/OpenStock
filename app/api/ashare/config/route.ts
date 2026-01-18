@@ -5,13 +5,7 @@ import { auth } from '@/lib/better-auth/auth';
 import { connectToDatabase } from '@/database/mongoose';
 import AshareStrategyConfig from '@/database/models/AshareStrategyConfig';
 import { buildDefaultConfig, normalizeConfig } from '@/lib/ashare/config';
-
-function normalizeSymbol(input: string | null): string {
-  const s = (input || '').trim().toUpperCase();
-  if (!s.includes(':')) return s;
-  const [ex, tk] = s.split(':');
-  return `${ex}:${tk}`;
-}
+import { normalizeSymbol } from '@/lib/ashare/symbol';
 
 function toNumber(v: unknown): number | undefined {
   const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN;
@@ -62,10 +56,11 @@ function sanitizeConfigPatch(body: any) {
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const symbol = normalizeSymbol(searchParams.get('symbol'));
-  if (!symbol) {
+  const rawSymbol = searchParams.get('symbol');
+  if (!rawSymbol) {
     return NextResponse.json({ ok: false, error: 'Missing symbol' }, { status: 400 });
   }
+  const symbol = normalizeSymbol(rawSymbol);
 
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
@@ -97,10 +92,11 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const symbol = normalizeSymbol(body?.symbol ?? '');
-  if (!symbol) {
+  const rawSymbol = body?.symbol;
+  if (!rawSymbol) {
     return NextResponse.json({ ok: false, error: 'Missing symbol' }, { status: 400 });
   }
+  const symbol = normalizeSymbol(rawSymbol);
 
   const patch = sanitizeConfigPatch(body);
 

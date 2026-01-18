@@ -8,7 +8,11 @@ const LOOKBACK = 20;
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const symbol = normalizeSymbol(body?.symbol ?? '');
+  const rawSymbol = body?.symbol;
+  if (!rawSymbol) {
+    return NextResponse.json({ ok: false, error: 'Missing symbol' }, { status: 400 });
+  }
+  const symbol = normalizeSymbol(rawSymbol);
   const timeframe = (body?.timeframe ?? '1m') as RealtimeTimeframe;
   const volume = Number(body?.volume);
   const amount = Number(body?.amount);

@@ -6,19 +6,13 @@ import { connectToDatabase } from '@/database/mongoose';
 import AshareBar, { type AshareBarFreq } from '@/database/models/ashareBar.model';
 import AshareStrategyConfig from '@/database/models/AshareStrategyConfig';
 import { buildDefaultConfig, normalizeConfig } from '@/lib/ashare/config';
+import { normalizeSymbol } from '@/lib/ashare/symbol';
 import { getDecision } from '@/lib/ashare/engine';
 
 const CACHE_TTL_MS = 4_000;
 const cache = new Map<string, { ts: number; data: any }>();
 
 const ALLOWED_FREQS: ReadonlySet<AshareBarFreq> = new Set(['1m', '5m', '15m', '30m', '60m', '1d']);
-
-function normalizeSymbol(input: string | null): string {
-  const s = (input || '').trim().toUpperCase();
-  if (!s.includes(':')) return s;
-  const [ex, tk] = s.split(':');
-  return `${ex}:${tk}`;
-}
 
 function normalizeIsoCandidate(s: string): string {
   let x = (s || '').trim();
@@ -52,13 +46,15 @@ function toEpochMillis(ts: unknown): number | null {
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const symbol = normalizeSymbol(searchParams.get('symbol'));
-  const tf = (searchParams.get('tf') || '1d').trim() as AshareBarFreq;
-  const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '500', 10) || 500, 100), 5000);
-
-  if (!symbol) {
+  const rawSymbol = searchParams.get('symbol');
+  if (!rawSymbol) {
     return NextResponse.json({ ok: false, error: 'Missing symbol' }, { status: 400 });
   }
+  const symbol = normalizeSymbol(rawSymbol);
+  const tf = (searchParams.get('tf') || '1d').trim() as AshareBarFreq;
+  const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '500', 10) || 500, 100), 5000);
+  const refresh = searchParams.get('refresh') === '1' && process.env.NODE_ENV === 'development';
+
   if (!ALLOWED_FREQS.has(tf)) {
     return NextResponse.json({ ok: false, error: `Unsupported tf: ${tf}` }, { status: 400 });
   }
@@ -80,8 +76,8 @@ export async function GET(req: Request) {
     const configUpdatedAt = config?.updatedAt ? new Date(config.updatedAt as any).getTime() : 0;
     const cacheKey = `${userId}|${symbol}|${tf}|${limit}|${configUpdatedAt}`;
     const cached = cache.get(cacheKey);
-    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-      return NextResponse.json(cached.data);
+    if (!refresh && cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return NextResponse.json({ ...cached.data, cacheHit: true });
     }
 
     const docs = await AshareBar.find({ symbol, freq: tf }).sort({ ts: -1 }).limit(limit).lean();
@@ -118,13 +114,27 @@ export async function GET(req: Request) {
       },
     });
 
+    const serverTime = decision.serverTime;
+    const lastBarTs = bars.length ? bars[bars.length - 1].ts : serverTime;
+    const barsAgeMs = Math.max(0, serverTime - lastBarTs);
+    const newsAgeMs = decision.external_signals.news ? Math.max(0, serverTime - decision.external_signals.news.ts) : null;
+    const realtimeAgeMs = decision.external_signals.realtime ? Math.max(0, serverTime - decision.external_signals.realtime.ts) : null;
+
     const response = {
       ok: true,
       symbol,
       tf,
       decision,
       config: normalized,
-      serverTime: decision.serverTime,
+      serverTime,
+      cacheHit: false,
+      dataFreshness: {
+        barsAgeMs,
+        newsAgeMs,
+        realtimeAgeMs,
+      },
+      external_used: decision.external_used,
+      news_source: decision.news_source,
     };
 
     cache.set(cacheKey, { ts: Date.now(), data: response });

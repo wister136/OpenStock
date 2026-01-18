@@ -5,6 +5,7 @@ import { detectRegime, type MarketRegime } from '@/lib/ashare/regime';
 import { normalizeSymbol } from '@/lib/ashare/symbol';
 import { MockNewsProvider } from '@/lib/ashare/providers/news_mock';
 import { DbNewsProvider } from '@/lib/ashare/providers/news_db';
+import { NewsFromItemsProvider, type NewsSignalWithSource } from '@/lib/ashare/providers/news_from_items';
 import { ExternalNewsProvider } from '@/lib/ashare/providers/news_external';
 import { BarsRealtimeProvider } from '@/lib/ashare/providers/realtime_from_bars';
 import { meanReversionStrategy } from '@/lib/ashare/strategies/meanReversion';
@@ -27,6 +28,7 @@ export type Decision = {
   reasons: string[];
   serverTime: number;
   external_used: { news: boolean; realtime: boolean };
+  news_source: 'items_rolling' | 'snapshot' | 'none';
 };
 
 export type DecisionInputs = {
@@ -83,13 +85,14 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
   const newsProviders =
     inputs.providers?.news ??
     [
+      new NewsFromItemsProvider(),
       new DbNewsProvider(),
       new ExternalNewsProvider(),
       new MockNewsProvider({ score: inputs.overrides?.mockNewsScore, confidence: inputs.overrides?.mockNewsConfidence }),
     ];
   const realtimeProviders = inputs.providers?.realtime ?? [new BarsRealtimeProvider()];
 
-  let news = await getNewsSignal(symbol, newsProviders);
+  let news = (await getNewsSignal(symbol, newsProviders)) as NewsSignalWithSource | null;
   let realtime: RealtimeSignal | null = null;
   if (timeframe === '1m' || timeframe === '5m') {
     realtime = await getRealtimeSignal(symbol, timeframe, realtimeProviders);
@@ -118,6 +121,13 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
         : riskOffStrategy({ bars, config });
 
   const reasons: string[] = [...regimeRes.reasons, ...strategyDecision.reasons];
+  const newsSource: Decision['news_source'] = news?.sourceType ?? 'none';
+  if (news && news.sourceType === 'items_rolling') {
+    const direction = news.score < 0 ? 'negative' : news.score > 0 ? 'positive' : 'neutral';
+    const topTitles = (news.explain?.topTitles ?? []).slice(0, 3).join(' | ');
+    const suffix = topTitles ? `, top: ${topTitles}` : '';
+    reasons.push(`Rolling news sentiment ${direction} (${news.score.toFixed(2)}) contributes to regime${suffix}`);
+  }
   if (newsUnavailable) reasons.push('News signal unavailable (missing or stale) -> fallback to Kline');
   if (realtimeUnavailable) reasons.push('Realtime signal unavailable (missing or stale) -> fallback to Kline');
 
@@ -184,6 +194,7 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
     reasons: dedupedReasons,
     serverTime: now,
     external_used: { news: Boolean(news), realtime: Boolean(realtime) },
+    news_source: newsSource,
   };
 
   if (!lastSnapshot || now - lastSnapshot.ts > 60_000) {

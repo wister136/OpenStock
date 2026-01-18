@@ -1,17 +1,10 @@
 import { NextResponse } from 'next/server';
 
 import { connectToDatabase } from '@/database/mongoose';
+import { normalizeSymbol } from '@/lib/ashare/symbol';
 import AshareBar, { type AshareBarFreq } from '@/database/models/ashareBar.model';
 
 const ALLOWED_FREQS: ReadonlySet<AshareBarFreq> = new Set(['1m', '5m', '15m', '30m', '60m', '1d']);
-
-function normalizeSymbol(input: string | null): string {
-  const s = (input || '').trim().toUpperCase();
-  // expect: SSE:603516 / SZSE:002317
-  if (!s.includes(':')) return s;
-  const [ex, tk] = s.split(':');
-  return `${ex}:${tk}`;
-}
 
 function normalizeIsoCandidate(s: string): string {
   let x = (s || '').trim();
@@ -52,13 +45,14 @@ function toEpochSeconds(ts: unknown): number | null {
 export async function GET(req: Request) {
   const startedAt = Date.now();
   const { searchParams } = new URL(req.url);
-  const symbol = normalizeSymbol(searchParams.get('symbol'));
+  const rawSymbol = searchParams.get('symbol');
+  if (!rawSymbol) {
+    return NextResponse.json({ ok: false, error: 'Missing symbol' }, { status: 400 });
+  }
+  const symbol = normalizeSymbol(rawSymbol);
   const freq = (searchParams.get('freq') || '30m').trim() as AshareBarFreq;
   const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '800', 10) || 800, 50), 5000);
 
-  if (!symbol) {
-    return NextResponse.json({ ok: false, error: 'Missing symbol' }, { status: 400 });
-  }
   if (!ALLOWED_FREQS.has(freq)) {
     return NextResponse.json({ ok: false, error: `Unsupported freq: ${freq}` }, { status: 400 });
   }

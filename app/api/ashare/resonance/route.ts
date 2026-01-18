@@ -5,6 +5,7 @@ import AshareBar, { type AshareBarFreq } from '@/database/models/ashareBar.model
 import { resolveConfig, scoreSignals } from '@/lib/ta/scoring';
 import { computeDailyTrendFilter, computeRsiReversionSignal, computeTrendFollowingSignal } from '@/lib/ta/signals';
 import type { Bar, RecommendationResponse, ResonanceConfig, StrategyKey, Timeframe } from '@/types/resonance';
+import { normalizeSymbol } from '@/lib/ashare/symbol';
 
 const CACHE_TTL_MS = 20000;
 const cache = new Map<string, { ts: number; data: RecommendationResponse }>();
@@ -15,13 +16,6 @@ const TIMEFRAME_MAP: Array<{ timeframe: Timeframe; freq: AshareBarFreq; strategy
   { timeframe: '30m', freq: '30m', strategy: 'trend_following' },
   { timeframe: '1d', freq: '1d', strategy: 'trend_following' },
 ];
-
-function normalizeSymbol(input: string | null): string {
-  const s = (input || '').trim().toUpperCase();
-  if (!s.includes(':')) return s;
-  const [ex, tk] = s.split(':');
-  return `${ex}:${tk}`;
-}
 
 function normalizeIsoCandidate(s: string): string {
   let x = (s || '').trim();
@@ -106,12 +100,13 @@ async function fetchBars(symbol: string, freq: AshareBarFreq, limit: number): Pr
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const symbol = normalizeSymbol(searchParams.get('symbol'));
-  const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '300', 10) || 300, 100), 5000);
-
-  if (!symbol) {
+  const rawSymbol = searchParams.get('symbol');
+  if (!rawSymbol) {
     return NextResponse.json({ ok: false, error: 'Missing symbol' }, { status: 400 });
   }
+  const symbol = normalizeSymbol(rawSymbol);
+  const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '300', 10) || 300, 100), 5000);
+
 
   const config = parseConfig(searchParams);
   const cacheKey = `${symbol}|${JSON.stringify(config)}|${limit}`;

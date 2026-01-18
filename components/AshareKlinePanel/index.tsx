@@ -49,6 +49,7 @@ import StrategyParamsPanel from './ui/StrategyParamsPanel';
 import TradeTable from './ui/TradeTable';
 import ReliabilityBanner from './ui/ReliabilityBanner';
 import StrategyRulesDialog from './ui/StrategyRulesDialog';
+import ExternalNewsTicker from '@/components/ExternalNewsTicker';
 
 export default function AshareKlinePanel({ symbol, title }: { symbol: string; title?: string }) {
   const { t } = useI18n();
@@ -94,6 +95,20 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
     };
     reasons: string[];
     serverTime: number;
+    external_used: { news: boolean; realtime: boolean };
+    news_source: 'items_rolling' | 'snapshot' | 'none';
+  };
+
+  type DecisionMeta = {
+    cacheHit: boolean;
+    dataFreshness: {
+      barsAgeMs: number;
+      newsAgeMs: number | null;
+      realtimeAgeMs: number | null;
+    };
+    serverTime: number;
+    external_used: { news: boolean; realtime: boolean };
+    news_source: 'items_rolling' | 'snapshot' | 'none';
   };
 
   const tvUrl = useMemo(() => tvChartUrl(symbol), [symbol]);
@@ -207,6 +222,19 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
     return new Date(ts).toLocaleTimeString();
   };
 
+  const fmtAge = (ms?: number | null) => {
+    if (ms == null || !Number.isFinite(ms)) return '--';
+    const min = Math.max(0, Math.floor(ms / 60000));
+    return `${min}m`;
+  };
+
+  const fmtNewsSource = (source?: DecisionMeta['news_source']) => {
+    if (!source) return '--';
+    if (source === 'items_rolling') return t('ashare.panel.newsSourceRolling');
+    if (source === 'snapshot') return t('ashare.panel.newsSourceSnapshot');
+    return t('ashare.panel.newsSourceNone');
+  };
+
   const translateReason = useCallback(
     (reason: string) => {
       const map: Record<string, string> = {
@@ -228,13 +256,43 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
         'PANIC regime: BUY disabled': 'ashare.reason.panicNoBuy',
         'Cooldown active: hold to avoid over-trading': 'ashare.reason.cooldown',
         'Cost filter: low volume regime, hold': 'ashare.reason.costHold',
+        'Rolling news sentiment negative': 'ashare.reason.newsRollingNegative',
+        'Rolling news sentiment positive': 'ashare.reason.newsRollingPositive',
+        'Rolling news sentiment neutral': 'ashare.reason.newsRollingNeutral',
       };
       const key = map[reason];
-      if (!key) return reason;
-      return t(key);
+      if (key) return t(key);
+      const rollingMatch = reason.match(
+        /^Rolling news sentiment (negative|positive|neutral) \(([-0-9.]+)\) contributes to regime(?:, top: (.*))?$/
+      );
+      if (rollingMatch) {
+        const dir = rollingMatch[1];
+        const score = rollingMatch[2];
+        const titles = rollingMatch[3] ?? '';
+        const dirKey =
+          dir === 'negative'
+            ? 'ashare.reason.newsRollingNegative'
+            : dir === 'positive'
+              ? 'ashare.reason.newsRollingPositive'
+              : 'ashare.reason.newsRollingNeutral';
+        const titleLabel = titles ? ` ${t('ashare.reason.newsRollingTop')}${titles}` : '';
+        return `${t(dirKey)} (${score})${titleLabel}`;
+      }
+      return reason;
     },
     [t]
   );
+
+  const renderNewsSourceBadge = (source?: DecisionMeta['news_source']) => {
+    if (!source) return null;
+    const meta =
+      source === 'items_rolling'
+        ? { label: t('ashare.panel.newsSourceRolling'), cls: 'text-emerald-300 border-emerald-400/40 bg-emerald-500/10' }
+        : source === 'snapshot'
+          ? { label: t('ashare.panel.newsSourceSnapshot'), cls: 'text-blue-300 border-blue-400/40 bg-blue-500/10' }
+          : { label: t('ashare.panel.newsSourceNone'), cls: 'text-gray-300 border-white/10 bg-white/5' };
+    return <span className={cn('ml-2 text-[10px] px-2 py-0.5 rounded border', meta.cls)}>{meta.label}</span>;
+  };
 
   const [freq, setFreq] = useState<AllowedFreq>('30m');
   const [loading, setLoading] = useState(false);
@@ -247,10 +305,16 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
   const [configVersion, setConfigVersion] = useState(0);
 
   const [decision, setDecision] = useState<DecisionPayload | null>(null);
+  const [decisionMeta, setDecisionMeta] = useState<DecisionMeta | null>(null);
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [showAllReasons, setShowAllReasons] = useState(false);
   const [showParams, setShowParams] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState<'3s' | '5s' | '10s' | 'manual'>('5s');
+  const [autoTuneLoading, setAutoTuneLoading] = useState(false);
+  const [autoTuneError, setAutoTuneError] = useState<string | null>(null);
+  const [autoTuneResult, setAutoTuneResult] = useState<any>(null);
+  const [autoTuneBackup, setAutoTuneBackup] = useState<RegimeConfig | null>(null);
 
 
 
@@ -313,6 +377,13 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
       const json = await res.json();
       if (json?.decision) {
         setDecision(json.decision as DecisionPayload);
+        setDecisionMeta({
+          cacheHit: Boolean(json?.cacheHit),
+          dataFreshness: json?.dataFreshness ?? { barsAgeMs: 0, newsAgeMs: null, realtimeAgeMs: null },
+          serverTime: json?.serverTime ?? Date.now(),
+          external_used: json?.external_used ?? { news: false, realtime: false },
+          news_source: json?.news_source ?? 'none',
+        });
       }
     } catch (e: any) {
       setDecisionError(String(e?.message ?? e));
@@ -325,17 +396,20 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
     let cancelled = false;
     if (!symbol || !regimeConfig) return;
     refreshDecision();
+    if (refreshInterval === 'manual') return;
+    const ms = refreshInterval === '3s' ? 3000 : refreshInterval === '10s' ? 10000 : 5000;
     const id = setInterval(() => {
       if (!cancelled) refreshDecision();
-    }, 5000);
+    }, ms);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [symbol, freq, regimeConfig, configVersion, refreshDecision]);
+  }, [symbol, freq, regimeConfig, configVersion, refreshDecision, refreshInterval]);
 
-  const applyConfig = useCallback(async () => {
-    if (!configDraft) return;
+  const applyConfig = useCallback(async (override?: RegimeConfig) => {
+    const payload = override ?? configDraft;
+    if (!payload) return;
     setConfigLoading(true);
     try {
       const res = await fetch('/api/ashare/config', {
@@ -343,9 +417,9 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           symbol,
-          weights: configDraft.weights,
-          thresholds: configDraft.thresholds,
-          positionCaps: configDraft.positionCaps,
+          weights: payload.weights,
+          thresholds: payload.thresholds,
+          positionCaps: payload.positionCaps,
         }),
       });
       if (!res.ok) {
@@ -363,6 +437,71 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
       setConfigLoading(false);
     }
   }, [configDraft, symbol, refreshDecision]);
+
+  const loadAutoTune = useCallback(async () => {
+    if (!symbol) return;
+    try {
+      const res = await fetch(`/api/ashare/autotune?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(freq)}`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const json = await res.json();
+      setAutoTuneResult(json?.latest ?? null);
+    } catch {
+    }
+  }, [symbol, freq]);
+
+  useEffect(() => {
+    loadAutoTune();
+  }, [loadAutoTune]);
+
+  const startAutoTune = useCallback(async () => {
+    if (!symbol) return;
+    setAutoTuneLoading(true);
+    setAutoTuneError(null);
+    try {
+      const res = await fetch('/api/ashare/autotune', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, tf: freq, trainDays: 180, trials: 80 }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        setAutoTuneError(text || `HTTP ${res.status}`);
+        return;
+      }
+      const json = await res.json();
+      setAutoTuneResult({
+        trainDays: json.trainDays,
+        trials: json.trials,
+        objective: json.objective,
+        bestParams: json.bestParams,
+        metrics: json.metrics,
+        createdAt: new Date(json.serverTime).toISOString(),
+      });
+    } catch (e: any) {
+      setAutoTuneError(String(e?.message ?? e));
+    } finally {
+      setAutoTuneLoading(false);
+    }
+  }, [symbol, freq]);
+
+  const applyRecommended = useCallback(async () => {
+    if (!autoTuneResult?.bestParams) return;
+    if (regimeConfig) setAutoTuneBackup(regimeConfig);
+    const best = autoTuneResult.bestParams;
+    const nextConfig = {
+      weights: best.weights,
+      thresholds: best.thresholds,
+      positionCaps: best.positionCaps,
+    } as RegimeConfig;
+    setConfigDraft(nextConfig);
+    applyConfig(nextConfig);
+  }, [autoTuneResult, applyConfig, regimeConfig]);
+
+  const rollbackConfig = useCallback(async () => {
+    if (!autoTuneBackup) return;
+    setConfigDraft(autoTuneBackup);
+    applyConfig(autoTuneBackup);
+  }, [autoTuneBackup, applyConfig]);
 // Indicators
   const [showMA5, setShowMA5] = useState(true);
   const [showMA10, setShowMA10] = useState(true);
@@ -1757,6 +1896,21 @@ useEffect(() => {
             <div className="text-gray-100">
               {decision ? fmtTs(decision.serverTime) : '--'}
             </div>
+            <div>{t('ashare.panel.cacheHit')}</div>
+            <div className="text-gray-100">
+              {decisionMeta ? (decisionMeta.cacheHit ? t('common.yes') : t('common.no')) : '--'}
+            </div>
+            <div>{t('ashare.panel.barsAge')}</div>
+            <div className="text-gray-100">{decisionMeta ? fmtAge(decisionMeta.dataFreshness.barsAgeMs) : '--'}</div>
+            <div>{t('ashare.panel.newsAge')}</div>
+            <div className="text-gray-100">{decisionMeta ? fmtAge(decisionMeta.dataFreshness.newsAgeMs) : '--'}</div>
+            <div>{t('ashare.panel.realtimeAge')}</div>
+            <div className="text-gray-100">{decisionMeta ? fmtAge(decisionMeta.dataFreshness.realtimeAgeMs) : '--'}</div>
+            <div>{t('ashare.panel.newsSource')}</div>
+            <div className="text-gray-100">
+              {decisionMeta ? fmtNewsSource(decisionMeta.news_source) : '--'}
+              {decisionMeta ? renderNewsSourceBadge(decisionMeta.news_source) : null}
+            </div>
           </div>
           <div className="mt-3 text-xs text-gray-400">{t('ashare.panel.reasons')}</div>
           <div className="mt-1 space-y-1 text-xs text-gray-300">
@@ -1800,12 +1954,26 @@ useEffect(() => {
               <div>{t('ashare.panel.realtimeFallback')}</div>
             )}
           </div>
+          <div className="mt-3">
+            <ExternalNewsTicker symbol={symbol} />
+          </div>
         </div>
 
         <div className="rounded-xl bg-white/5 border border-white/5 p-4">
           <div className="flex items-center justify-between">
             <div className="text-xs text-gray-400">{t('ashare.panel.configPanel')}</div>
             <div className="flex items-center gap-2">
+              {refreshInterval === 'manual' && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[10px] text-gray-300"
+                  onClick={refreshDecision}
+                >
+                  {t('common.refresh')}
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="ghost"
@@ -1819,6 +1987,20 @@ useEffect(() => {
                 {t('common.apply')}
               </Button>
             </div>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            {(['3s', '5s', '10s', 'manual'] as const).map((opt) => (
+              <Button
+                key={opt}
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={cn('h-7 px-2 text-[10px]', refreshInterval === opt ? 'bg-white/10 text-white' : 'text-gray-300')}
+                onClick={() => setRefreshInterval(opt)}
+              >
+                {opt === 'manual' ? t('ashare.panel.refreshManual') : t('ashare.panel.refreshEvery', { sec: opt.replace('s', '') })}
+              </Button>
+            ))}
           </div>
           {showParams && configDraft && (
             <div className="mt-3 space-y-3 text-xs">
@@ -1921,6 +2103,42 @@ useEffect(() => {
                     <Input type="number" step="0.01" value={configDraft.positionCaps.panic} onChange={(e) => updateConfigField('positionCaps', 'panic', Number(e.target.value))} />
                   </div>
                 </div>
+              </div>
+              <div className="rounded-lg border border-white/5 bg-white/5 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-gray-300">{t('ashare.panel.autoTune')}</div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-[10px]" onClick={startAutoTune} disabled={autoTuneLoading}>
+                      {autoTuneLoading ? t('common.loading') : t('ashare.panel.autoTuneStart')}
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px]" onClick={applyRecommended} disabled={!autoTuneResult?.bestParams}>
+                      {t('ashare.panel.autoTuneApply')}
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px]" onClick={rollbackConfig} disabled={!autoTuneBackup}>
+                      {t('ashare.panel.autoTuneRollback')}
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-2 text-[11px] text-gray-500">
+                  {t('ashare.panel.autoTuneHint')}
+                </div>
+                {autoTuneError && <div className="mt-2 text-xs text-yellow-400">{autoTuneError}</div>}
+                {autoTuneResult && (
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-gray-300">
+                    <div>{t('ashare.panel.autoTuneTrainDays')}</div>
+                    <div className="text-gray-100">{autoTuneResult.trainDays}</div>
+                    <div>{t('ashare.panel.autoTuneTrials')}</div>
+                    <div className="text-gray-100">{autoTuneResult.trials}</div>
+                    <div>{t('ashare.panel.autoTuneScore')}</div>
+                    <div className="text-gray-100">{autoTuneResult.metrics?.score?.toFixed?.(4) ?? '--'}</div>
+                    <div>{t('ashare.panel.autoTuneNetReturn')}</div>
+                    <div className="text-gray-100">{autoTuneResult.metrics?.netReturn?.toFixed?.(4) ?? '--'}</div>
+                    <div>{t('ashare.panel.autoTuneMaxDD')}</div>
+                    <div className="text-gray-100">{autoTuneResult.metrics?.maxDD?.toFixed?.(4) ?? '--'}</div>
+                    <div>{t('ashare.panel.autoTuneTrades')}</div>
+                    <div className="text-gray-100">{autoTuneResult.metrics?.trades ?? '--'}</div>
+                  </div>
+                )}
               </div>
             </div>
           )}
