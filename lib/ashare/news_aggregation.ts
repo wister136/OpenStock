@@ -13,6 +13,48 @@ function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
+export type NewsItemSentimentLite = {
+  publishedAt: number;
+  sentimentScore?: number;
+  confidence?: number;
+};
+
+export function computeRollingSentiment(
+  items: NewsItemSentimentLite[],
+  nowMs: number,
+  windowHours: number,
+  decayK: number
+): { score: number; confidence: number; count: number } | null {
+  const windowMs = Math.max(0, windowHours) * 60 * 60 * 1000;
+  const cutoff = nowMs - windowMs;
+  let weightedScore = 0;
+  let weightedConfidence = 0;
+  let weightSum = 0;
+  let count = 0;
+
+  for (const item of items) {
+    const ts = item.publishedAt;
+    if (!Number.isFinite(ts) || ts < cutoff) continue;
+    const score = item.sentimentScore;
+    if (!Number.isFinite(score)) continue;
+    const ageMinutes = Math.max(0, (nowMs - ts) / 60000);
+    const weight = Math.exp(-decayK * ageMinutes);
+    weightSum += weight;
+    weightedScore += (score as number) * weight;
+    if (Number.isFinite(item.confidence)) {
+      weightedConfidence += (item.confidence as number) * weight;
+    }
+    count += 1;
+  }
+
+  if (count < 3 || !(weightSum > 0)) return null;
+  return {
+    score: Math.max(-1, Math.min(1, weightedScore / weightSum)),
+    confidence: clamp01(weightedConfidence / weightSum),
+    count,
+  };
+}
+
 export function computeRollingNewsSignal(args: {
   items: NewsItemLite[];
   nowMs: number;
