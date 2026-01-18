@@ -29,7 +29,10 @@ export default function SignIn() {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      const result = await signInWithEmail(values.email, values.password);
+      const result = await signInWithEmail({
+        email: values.email,
+        password: values.password,
+      });
       if (!result?.success) {
         toast.error(t('auth.signInFailed'), { description: result?.error ?? '' });
         return;
