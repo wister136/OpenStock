@@ -1,6 +1,7 @@
 // Pure strategy calculations (no React)
 import type { OHLCVBar } from '@/lib/indicators';
 import { bollingerBands, ema, lastFinite, macd, rollingMax, rollingMin, rsi, sma } from '@/lib/indicators';
+import { tRuntime } from '@/lib/i18n/runtime';
 
 import type { StrategyKey, StrategyParams, StrategySignal, Marker, OverlayMarker } from '../types';
 import { DEFAULT_STRATEGY_PARAMS } from '../types';
@@ -235,8 +236,8 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const c5 = ma5[i];
       const c20 = ma20[i];
       if (![p5, p20, c5, c20].every((x) => Number.isFinite(x))) continue;
-      if (p5 <= p20 && c5 > c20) push(i, 'BUY', 'MA5 上穿 MA20');
-      if (p5 >= p20 && c5 < c20) push(i, 'SELL', 'MA5 下穿 MA20');
+      if (p5 <= p20 && c5 > c20) push(i, 'BUY', tRuntime('strategy.reason.maUp'));
+      if (p5 >= p20 && c5 < c20) push(i, 'SELL', tRuntime('strategy.reason.maDown'));
     }
   }
 
@@ -248,8 +249,8 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const pE = e20[i - 1];
       const cE = e20[i];
       if (![pClose, cClose, pE, cE].every((x) => Number.isFinite(x))) continue;
-      if (pClose <= pE && cClose > cE) push(i, 'BUY', '收盘上穿 EMA20');
-      if (pClose >= pE && cClose < cE) push(i, 'SELL', '收盘下穿 EMA20');
+      if (pClose <= pE && cClose > cE) push(i, 'BUY', tRuntime('strategy.reason.emaUp'));
+      if (pClose >= pE && cClose < cE) push(i, 'SELL', tRuntime('strategy.reason.emaDown'));
     }
   }
 
@@ -261,8 +262,8 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const c = m.macd[i];
       const cs = m.signal[i];
       if (![p, ps, c, cs].every((x) => Number.isFinite(x))) continue;
-      if (p <= ps && c > cs) push(i, 'BUY', 'MACD 金叉');
-      if (p >= ps && c < cs) push(i, 'SELL', 'MACD 死叉');
+      if (p <= ps && c > cs) push(i, 'BUY', tRuntime('strategy.reason.macdUp'));
+      if (p >= ps && c < cs) push(i, 'SELL', tRuntime('strategy.reason.macdDown'));
     }
   }
 
@@ -272,8 +273,8 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const p = r14[i - 1];
       const c = r14[i];
       if (![p, c].every((x) => Number.isFinite(x))) continue;
-      if (p < 30 && c >= 30) push(i, 'BUY', 'RSI 上穿 30');
-      if (p > 70 && c <= 70) push(i, 'SELL', 'RSI 下穿 70');
+      if (p < 30 && c >= 30) push(i, 'BUY', tRuntime('strategy.reason.rsiUp30'));
+      if (p > 70 && c <= 70) push(i, 'SELL', tRuntime('strategy.reason.rsiDown70'));
     }
   }
 
@@ -283,8 +284,8 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const p = r14[i - 1];
       const c = r14[i];
       if (![p, c].every((x) => Number.isFinite(x))) continue;
-      if (p < 50 && c >= 50) push(i, 'BUY', 'RSI 上穿 50');
-      if (p > 50 && c <= 50) push(i, 'SELL', 'RSI 下穿 50');
+      if (p < 50 && c >= 50) push(i, 'BUY', tRuntime('strategy.reason.rsiUp50'));
+      if (p > 50 && c <= 50) push(i, 'SELL', tRuntime('strategy.reason.rsiDown50'));
     }
   }
 
@@ -298,8 +299,8 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const pL = bb.lower[i - 1];
       const cL = bb.lower[i];
       if (![pClose, cClose, pU, cU, pL, cL].every((x) => Number.isFinite(x))) continue;
-      if (pClose <= pU && cClose > cU) push(i, 'BUY', '突破上轨');
-      if (pClose >= pL && cClose < cL) push(i, 'SELL', '跌破下轨');
+      if (pClose <= pU && cClose > cU) push(i, 'BUY', tRuntime('strategy.reason.bbUp'));
+      if (pClose >= pL && cClose < cL) push(i, 'SELL', tRuntime('strategy.reason.bbDown'));
     }
   }
 
@@ -314,8 +315,8 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const cM = bb.mid[i];
       if (![pClose, cClose, pL, cL, pM, cM].every((x) => Number.isFinite(x))) continue;
       // BUY when crosses below lower band; SELL when crosses above middle band
-      if (pClose >= pL && cClose < cL) push(i, 'BUY', '跌破下轨（均值回归）');
-      if (pClose <= pM && cClose > cM) push(i, 'SELL', '回到中轨（均值回归）');
+      if (pClose >= pL && cClose < cL) push(i, 'BUY', tRuntime('strategy.reason.bbRevertBuy'));
+      if (pClose <= pM && cClose > cM) push(i, 'SELL', tRuntime('strategy.reason.bbRevertSell'));
     }
   }
 
@@ -330,13 +331,13 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const prevLow = rollLow[i - 1];
       const cClose = closes[i];
       if (![prevHigh, prevLow, cClose].every((x) => Number.isFinite(x))) continue;
-      if (cClose > prevHigh) push(i, 'BUY', `突破${period}根最高`);
-      if (cClose < prevLow) push(i, 'SELL', `跌破${period}根最低`);
+      if (cClose > prevHigh) push(i, 'BUY', tRuntime('strategy.reason.channelUp', { period }));
+      if (cClose < prevLow) push(i, 'SELL', tRuntime('strategy.reason.channelDown', { period }));
     }
   }
 
 
-  // ===== 新增策略：SuperTrend / ATR Breakout / 海龟 / 一目 / KDJ =====
+  // ===== New strategies: SuperTrend / ATR Breakout / Turtle / Ichimoku / KDJ =====
 
   if (strategy === 'supertrend') {
     const period = Math.max(2, Math.floor(params.supertrend.atrLen));
@@ -373,8 +374,8 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
         trend[i] = closes[i] > fUpper[i] ? 1 : -1;
       }
 
-      if (trend[i - 1] === -1 && trend[i] === 1) push(i, 'BUY', 'SuperTrend 由空转多');
-      if (trend[i - 1] === 1 && trend[i] === -1) push(i, 'SELL', 'SuperTrend 由多转空');
+      if (trend[i - 1] === -1 && trend[i] === 1) push(i, 'BUY', tRuntime('strategy.reason.supertrendUp'));
+      if (trend[i - 1] === 1 && trend[i] === -1) push(i, 'SELL', tRuntime('strategy.reason.supertrendDown'));
     }
   }
 
@@ -400,8 +401,10 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const dn = pl - k * a;
 
       // Require a real break (avoid repeating signals every bar)
-      if (pc <= up && c > up) push(i, 'BUY', `ATR突破：上破${donch}通道${k > 0 ? '+ATR缓冲' : ''}`);
-      if (pc >= dn && c < dn) push(i, 'SELL', `ATR突破：下破${donch}通道${k > 0 ? '-ATR缓冲' : ''}`);
+      const upBuffer = k > 0 ? tRuntime('strategy.reason.atrBufferPlus') : '';
+      const downBuffer = k > 0 ? tRuntime('strategy.reason.atrBufferMinus') : '';
+      if (pc <= up && c > up) push(i, 'BUY', tRuntime('strategy.reason.atrUp', { period: donch, buffer: upBuffer }));
+      if (pc >= dn && c < dn) push(i, 'SELL', tRuntime('strategy.reason.atrDown', { period: donch, buffer: downBuffer }));
     }
   }
 
@@ -420,8 +423,8 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const xl = rollExitLow[i - 1];
       if (![c, pc, eh, xl].every((x) => Number.isFinite(x))) continue;
 
-      if (pc <= eh && c > eh) push(i, 'BUY', `海龟入场：上破${entryN}高点`);
-      if (pc >= xl && c < xl) push(i, 'SELL', `海龟出场：下破${exitN}低点`);
+      if (pc <= eh && c > eh) push(i, 'BUY', tRuntime('strategy.reason.turtleUp', { period: entryN }));
+      if (pc >= xl && c < xl) push(i, 'SELL', tRuntime('strategy.reason.turtleDown', { period: exitN }));
     }
   }
 
@@ -457,9 +460,9 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const prevBot = Math.min(spanA[i - 1], spanB[i - 1]);
 
       // Buy: break above cloud & tk>kj
-      if (prevC <= prevTop && c > cloudTop && tk > kj) push(i, 'BUY', '一目：上破云层且转强');
+      if (prevC <= prevTop && c > cloudTop && tk > kj) push(i, 'BUY', tRuntime('strategy.reason.ichimokuUp'));
       // Sell: break below cloud & tk<kj
-      if (prevC >= prevBot && c < cloudBot && tk < kj) push(i, 'SELL', '一目：下破云层且转弱');
+      if (prevC >= prevBot && c < cloudBot && tk < kj) push(i, 'SELL', tRuntime('strategy.reason.ichimokuDown'));
     }
   }
 
@@ -508,8 +511,8 @@ export function computeStrategySignals(strategy: StrategyKey, bars: OHLCVBar[], 
       const crossUp = pk <= pd && ck > cd;
       const crossDn = pk >= pd && ck < cd;
 
-      if (crossUp && ck < 30) push(i, 'BUY', 'KDJ：低位金叉');
-      if (crossDn && ck > 70) push(i, 'SELL', 'KDJ：高位死叉');
+      if (crossUp && ck < 30) push(i, 'BUY', tRuntime('strategy.reason.kdjUp'));
+      if (crossDn && ck > 70) push(i, 'SELL', tRuntime('strategy.reason.kdjDown'));
     }
   }
 
@@ -533,33 +536,33 @@ export function buildStrategyMarkers(strategy: StrategyKey, bars: OHLCVBar[], pa
         position: s.side === 'BUY' ? 'belowBar' : 'aboveBar',
         shape: s.side === 'BUY' ? 'arrowUp' : 'arrowDown',
         color: s.side === 'BUY' ? '#ef4444' : '#22c55e',
-        text: s.side === 'BUY' ? '买入' : '卖出',
+        text: s.side === 'BUY' ? tRuntime('strategy.marker.buy') : tRuntime('strategy.marker.sell'),
         reason: s.reason,
       } as Marker;
     })
     .filter(Boolean) as Marker[];
 
   let statusBase: string | null = null;
-  if (strategy === 'maCross') statusBase = 'MA5/MA20 交叉信号：MA5 上穿/下穿 MA20（买入/卖出）';
-  if (strategy === 'emaTrend') statusBase = 'EMA20 趋势跟随：收盘上穿 EMA20 买入 / 下穿 EMA20 卖出';
-  if (strategy === 'macdCross') statusBase = 'MACD 金叉/死叉：MACD 线上穿/下穿 Signal（买入/卖出）';
-  if (strategy === 'rsiReversion') statusBase = 'RSI14 均值回归：上穿 30 买入 / 下穿 70 卖出';
-  if (strategy === 'rsiMomentum') statusBase = 'RSI14 动量：上穿 50 买入 / 下穿 50 卖出';
-  if (strategy === 'bollingerBreakout') statusBase = '布林带突破：突破上轨买入 / 跌破下轨卖出';
-  if (strategy === 'bollingerReversion') statusBase = '布林带均值回归：跌破下轨买入 / 回到中轨卖出';
-  if (strategy === 'channelBreakout') statusBase = '通道突破：突破前 20 根最高/最低 → 买入/卖出';
+  if (strategy === 'maCross') statusBase = tRuntime('strategy.status.ma');
+  if (strategy === 'emaTrend') statusBase = tRuntime('strategy.status.ema');
+  if (strategy === 'macdCross') statusBase = tRuntime('strategy.status.macd');
+  if (strategy === 'rsiReversion') statusBase = tRuntime('strategy.status.rsiRev');
+  if (strategy === 'rsiMomentum') statusBase = tRuntime('strategy.status.rsiMom');
+  if (strategy === 'bollingerBreakout') statusBase = tRuntime('strategy.status.bbBreak');
+  if (strategy === 'bollingerReversion') statusBase = tRuntime('strategy.status.bbRevert');
+  if (strategy === 'channelBreakout') statusBase = tRuntime('strategy.status.channel');
 
   const count = markers.length;
   let status = statusBase;
   if (status) {
-    status = `${status}${count === 0 ? '（当前窗口无信号）' : ''}；信号数=${count}`;
+    status = `${status}${count === 0 ? tRuntime('strategy.status.noSignal') : ''}${tRuntime('strategy.status.count', { count })}`;
     if (count > 0) {
       const last = markers[count - 1];
       try {
-        status += `；最近=${last.text}@${new Date((last.time as any) * 1000).toLocaleString()}`;
+        status += tRuntime('strategy.status.last', { text: last.text, time: new Date((last.time as any) * 1000).toLocaleString() });
       } catch (e) {}
     }
-    status += '；回测请在弹窗“回测”页查看（下一根开盘成交）';
+    status += tRuntime('strategy.status.backtestHint');
   }
 
   return { markers, status };

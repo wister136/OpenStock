@@ -1,0 +1,8 @@
+{
+    "terminal.integrated.commandsToAutorun": {
+    "workbench.action.tasks.runTask": true,
+    "workbench.action.terminal.sendSequence": true
+},
+"security.workspace.trust.enabled": false,
+"security.workspace.trust.startupPrompt": "never"
+}

@@ -1,17 +1,20 @@
-'use client';
+"use client";
 
-import React from 'react';
-import type { BacktestResult } from '../types';
+import React from "react";
+import { useI18n } from "@/lib/i18n";
+import type { BacktestResult } from "../types";
 
 export default function ReliabilityBanner({ backtest }: { backtest: BacktestResult }) {
+  const { t } = useI18n();
   if (!backtest?.ok) return null;
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
       <div className="flex items-center justify-between">
-        <div className="text-xs text-white font-medium">可信度提示</div>
+        <div className="text-xs text-white font-medium">{t("ashare.reliability.title")}</div>
         <div className="text-xs text-gray-300">
-          级别：<span className="text-white font-medium">{backtest.reliabilityLevel}</span>
+          {t("ashare.reliability.level")}{" "}
+          <span className="text-white font-medium">{backtest.reliabilityLevel}</span>
         </div>
       </div>
 
@@ -22,11 +25,17 @@ export default function ReliabilityBanner({ backtest }: { backtest: BacktestResu
           ))}
         </ul>
       ) : (
-        <div className="mt-2 text-[11px] text-gray-200">样本充足，结果相对稳定（仍不保证未来表现）。</div>
+        <div className="mt-2 text-[11px] text-gray-200">{t("ashare.reliability.good")}</div>
       )}
 
       <div className="mt-2 text-[11px] text-gray-300">
-        样本：{backtest.sampleStart || '--'} ~ {backtest.sampleEnd || '--'}（{backtest.coverDays || '--'} 个交易日，{backtest.barCount} 根K，交易 {backtest.tradeCount} 笔）
+        {t("ashare.reliability.sample", {
+          start: backtest.sampleStart || "--",
+          end: backtest.sampleEnd || "--",
+          days: backtest.coverDays || "--",
+          bars: backtest.barCount,
+          trades: backtest.tradeCount,
+        })}
       </div>
     </div>
   );

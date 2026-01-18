@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { getSimpleQuote } from '@/lib/actions/quotes.actions';
+import { tServer } from '@/lib/i18n/server';
 
 type Row = {
   symbol: string;
@@ -21,10 +22,10 @@ export default async function InternalQuotesTable({ rows }: { rows: Row[] }) {
       <table className="min-w-full text-sm">
         <thead className="text-xs text-gray-400 border-b border-white/5">
           <tr>
-            <th className="text-left p-4 font-medium">名称</th>
-            <th className="text-right p-4 font-medium">最新价</th>
-            <th className="text-right p-4 font-medium">涨跌额</th>
-            <th className="text-right p-4 font-medium">涨跌幅</th>
+            <th className="text-left p-4 font-medium">{tServer('table.name')}</th>
+            <th className="text-right p-4 font-medium">{tServer('table.value')}</th>
+            <th className="text-right p-4 font-medium">{tServer('table.change')}</th>
+            <th className="text-right p-4 font-medium">{tServer('table.chgPercent')}</th>
           </tr>
         </thead>
         <tbody>
@@ -43,7 +44,8 @@ export default async function InternalQuotesTable({ rows }: { rows: Row[] }) {
                   {r.name ? <div className="text-xs text-gray-400 mt-1">{r.name}</div> : null}
                 </td>
                 <td className="p-4 text-right text-white">
-                  {formatNumber(q?.price ?? null, 2)} <span className="text-xs text-gray-500">{q?.currency ?? ''}</span>
+                  {formatNumber(q?.price ?? null, 2)}{' '}
+                  <span className="text-xs text-gray-500">{q?.currency ?? ''}</span>
                 </td>
                 <td className={`p-4 text-right font-medium ${changeClass}`}>
                   {q?.change == null ? '--' : `${q.change > 0 ? '+' : ''}${formatNumber(q.change, 2)}`}

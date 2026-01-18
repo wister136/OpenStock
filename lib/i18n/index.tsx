@@ -3,6 +3,9 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { DEFAULT_LANG, Lang, MESSAGES } from './messages';
 
+const STORAGE_KEY = 'openstock_locale';
+const COOKIE_KEY = 'openstock_locale';
+
 type Vars = Record<string, string | number | boolean | null | undefined>;
 
 type I18nContextValue = {
@@ -27,20 +30,42 @@ export function langToTradingViewLocale(lang: Lang) {
   return lang === 'zh' ? 'zh_CN' : 'en';
 }
 
-export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(DEFAULT_LANG);
+export function I18nProvider({
+  children,
+  initialLang,
+}: {
+  children: React.ReactNode;
+  initialLang?: Lang;
+}) {
+  const [lang, setLangState] = useState<Lang>(initialLang ?? DEFAULT_LANG);
 
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem('openstock.lang') as Lang | null;
-      if (saved === 'en' || saved === 'zh') setLangState(saved);
+      const saved =
+        (window.localStorage.getItem(STORAGE_KEY) as Lang | null) ??
+        (window.localStorage.getItem('openstock.lang') as Lang | null);
+      if (saved === 'en' || saved === 'zh') {
+        if (saved !== lang) setLangState(saved);
+      }
     } catch {}
-  }, []);
+  }, [lang]);
+
+  useEffect(() => {
+    try {
+      document.documentElement.lang = lang;
+    } catch {}
+  }, [lang]);
 
   const setLang = (next: Lang) => {
     setLangState(next);
     try {
-      window.localStorage.setItem('openstock.lang', next);
+      window.localStorage.setItem(STORAGE_KEY, next);
+    } catch {}
+    try {
+      document.cookie = `${COOKIE_KEY}=${next}; path=/; max-age=31536000`;
+    } catch {}
+    try {
+      document.documentElement.lang = next;
     } catch {}
   };
 

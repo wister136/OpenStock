@@ -1,6 +1,7 @@
 // Backtest engine (pure function, next-open execution model)
 import type { OHLCVBar } from '@/lib/indicators';
 import { lastFinite } from '@/lib/indicators';
+import { tRuntime } from '@/lib/i18n/runtime';
 
 import type { StrategyKey, StrategyParams, StrategySignal, BacktestConfig, BacktestResult, BacktestTrade } from '../types';
 import { DEFAULT_BACKTEST_CONFIG, DEFAULT_STRATEGY_PARAMS, DEFAULT_INITIAL_CAPITAL, FORCE_CLOSE_AT_END } from '../types';
@@ -17,7 +18,7 @@ export function runBacktestNextOpen(
   if (!Number.isFinite(cap) || cap <= 0) {
     return {
       ok: false,
-      error: '初始资金不合法',
+      error: tRuntime('backtest.error.invalidInitialCapital'),
       initialCapital: 0,
       finalEquity: 0,
       netProfit: 0,
@@ -46,8 +47,8 @@ export function runBacktestNextOpen(
       barCount: bars.length,
       validBarCount: 0,
       tradeCount: 0,
-      reliabilityLevel: '低',
-      reliabilityNotes: ['初始资金不合法'],
+      reliabilityLevel: tRuntime('reliability.level.low'),
+      reliabilityNotes: [tRuntime('backtest.error.invalidInitialCapital')],
 
       buyHoldFinalEquity: null,
       buyHoldCagrPct: null,
@@ -87,7 +88,7 @@ export function runBacktestNextOpen(
   if (!bars.length || strategy === 'none') {
     return {
       ok: false,
-      error: '请先选择一个策略',
+      error: tRuntime('backtest.error.noStrategy'),
       initialCapital: cap,
       finalEquity: cap,
       netProfit: 0,
@@ -115,8 +116,8 @@ export function runBacktestNextOpen(
       barCount: bars.length,
       validBarCount: bars.length,
       tradeCount: 0,
-      reliabilityLevel: '低',
-      reliabilityNotes: ['请先选择一个策略'],
+      reliabilityLevel: tRuntime('reliability.level.low'),
+      reliabilityNotes: [tRuntime('backtest.error.noStrategy')],
 
       buyHoldFinalEquity: null,
       buyHoldCagrPct: null,
@@ -156,7 +157,7 @@ export function runBacktestNextOpen(
   if (bars.length < 5) {
     return {
       ok: false,
-      error: '数据不足，无法回测',
+      error: tRuntime('backtest.error.insufficientData'),
       initialCapital: cap,
       finalEquity: cap,
       netProfit: 0,
@@ -184,8 +185,8 @@ export function runBacktestNextOpen(
       barCount: bars.length,
       validBarCount: bars.length,
       tradeCount: 0,
-      reliabilityLevel: '低',
-      reliabilityNotes: ['数据不足，无法回测'],
+      reliabilityLevel: tRuntime('reliability.level.low'),
+      reliabilityNotes: [tRuntime('backtest.error.insufficientData')],
 
       buyHoldFinalEquity: null,
       buyHoldCagrPct: null,
@@ -1025,12 +1026,13 @@ export function runBacktestNextOpen(
   const reliabilityNotes: string[] = [];
   const tradeCount = trades.length;
 
-  if (barCount < 200) reliabilityNotes.push(`有效K线较少（${barCount}），统计不稳定`);
-  if (validBarCount < barCount) reliabilityNotes.push(`存在无效K线（有效 ${validBarCount}/${barCount}），已按可用数据计算`);
-  if (sampleDays != null && sampleDays < 60) reliabilityNotes.push(`覆盖交易日较少（${sampleDays} 天），不代表长期表现`);
-  if (tradeCount === 0) reliabilityNotes.push('本样本内没有产生交易，无法评估策略');
-  if (tradeCount > 0 && tradeCount < 20) reliabilityNotes.push(`交易次数偏少（${tradeCount} 笔），胜率/因子波动较大`);
-  if (FORCE_CLOSE_AT_END) reliabilityNotes.push('最后一笔未平仓按最后收盘价虚拟平仓，仅用于统计展示');
+  if (barCount < 200) reliabilityNotes.push(tRuntime('backtest.reliability.lowBars', { barCount }));
+  if (validBarCount < barCount)
+    reliabilityNotes.push(tRuntime('backtest.reliability.invalidBars', { validBarCount, barCount }));
+  if (sampleDays != null && sampleDays < 60) reliabilityNotes.push(tRuntime('backtest.reliability.lowSampleDays', { sampleDays }));
+  if (tradeCount === 0) reliabilityNotes.push(tRuntime('backtest.reliability.noTrades'));
+  if (tradeCount > 0 && tradeCount < 20) reliabilityNotes.push(tRuntime('backtest.reliability.lowTrades', { tradeCount }));
+  if (FORCE_CLOSE_AT_END) reliabilityNotes.push(tRuntime('backtest.reliability.forceClose'));
 
   const lowFlags = [
     barCount < 120,
@@ -1039,7 +1041,11 @@ export function runBacktestNextOpen(
     tradeCount === 0,
   ].filter(Boolean).length;
 
-  const reliabilityLevel: '高' | '中' | '低' = lowFlags > 0 ? '低' : reliabilityNotes.length ? '中' : '高';
+  const reliabilityLevel = lowFlags > 0
+    ? tRuntime('reliability.level.low')
+    : reliabilityNotes.length
+      ? tRuntime('reliability.level.medium')
+      : tRuntime('reliability.level.high');
 
   return {
     ok: true,

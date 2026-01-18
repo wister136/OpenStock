@@ -53,12 +53,172 @@ import StrategyRulesDialog from './ui/StrategyRulesDialog';
 export default function AshareKlinePanel({ symbol, title }: { symbol: string; title?: string }) {
   const { t } = useI18n();
 
+  type RegimeConfig = {
+    weights: {
+      w_trend: number;
+      w_range: number;
+      w_panic: number;
+      w_news: number;
+      w_realtime: number;
+    };
+    thresholds: {
+      trendScore: number;
+      panicVolRatio: number;
+      panicDrawdown: number;
+      volRatioLow: number;
+      volRatioHigh: number;
+      minLiquidityRatio: number;
+      realtimeVolSurprise: number;
+      realtimeAmtSurprise: number;
+      newsPanicThreshold: number;
+      newsTrendThreshold: number;
+    };
+    positionCaps: {
+      trend: number;
+      range: number;
+      panic: number;
+    };
+  };
+
+  type DecisionPayload = {
+    regime: 'TREND' | 'RANGE' | 'PANIC';
+    regime_confidence: number;
+    strategy: 'TSMOM' | 'MEAN_REVERSION' | 'RISK_OFF';
+    action: 'BUY' | 'SELL' | 'HOLD';
+    position_cap: number;
+    external_signals: {
+      news?: { score: number; confidence: number; ts: number };
+      realtime?: { volSurprise: number; amtSurprise: number; ts: number };
+    };
+    reasons: string[];
+  };
+
   const tvUrl = useMemo(() => tvChartUrl(symbol), [symbol]);
+
+  const strategyLabelKey: Record<StrategyKey, string> = {
+    none: 'strategy.label.none',
+    maCross: 'strategy.label.maCross',
+    emaTrend: 'strategy.label.emaTrend',
+    macdCross: 'strategy.label.macdCross',
+    rsiReversion: 'strategy.label.rsiReversion',
+    rsiMomentum: 'strategy.label.rsiMomentum',
+    bollingerBreakout: 'strategy.label.bollingerBreakout',
+    bollingerReversion: 'strategy.label.bollingerReversion',
+    channelBreakout: 'strategy.label.channelBreakout',
+    supertrend: 'strategy.label.supertrend',
+    atrBreakout: 'strategy.label.atrBreakout',
+    turtle: 'strategy.label.turtle',
+    ichimoku: 'strategy.label.ichimoku',
+    kdj: 'strategy.label.kdj',
+  };
+
+  const strategyNoteKey: Partial<Record<StrategyKey, string>> = {
+    none: 'strategy.note.none',
+    maCross: 'strategy.note.maCross',
+    emaTrend: 'strategy.note.emaTrend',
+    macdCross: 'strategy.note.macdCross',
+    rsiReversion: 'strategy.note.rsiReversion',
+    rsiMomentum: 'strategy.note.rsiMomentum',
+    bollingerReversion: 'strategy.note.bollingerReversion',
+    bollingerBreakout: 'strategy.note.bollingerBreakout',
+    channelBreakout: 'strategy.note.channelBreakout',
+    supertrend: 'strategy.note.supertrend',
+    atrBreakout: 'strategy.note.atrBreakout',
+    turtle: 'strategy.note.turtle',
+    ichimoku: 'strategy.note.ichimoku',
+    kdj: 'strategy.note.kdj',
+  };
+
+  const indicatorNameKey: Record<IndicatorKey, string> = {
+    ma5: 'indicator.ma5',
+    ma10: 'indicator.ma10',
+    ma20: 'indicator.ma20',
+    ema20: 'indicator.ema20',
+    bbands: 'indicator.bbands',
+    rsi14: 'indicator.rsi14',
+    macd: 'indicator.macd',
+  };
+
+  const indicatorDescKey: Record<IndicatorKey, string> = {
+    ma5: 'indicator.desc.ma5',
+    ma10: 'indicator.desc.ma10',
+    ma20: 'indicator.desc.ma20',
+    ema20: 'indicator.desc.ema20',
+    bbands: 'indicator.desc.bbands',
+    rsi14: 'indicator.desc.rsi14',
+    macd: 'indicator.desc.macd',
+  };
+
+  const categoryLabel = (category: string) => {
+    if (category === '趋势') return t('indicator.category.trend');
+    if (category === '震荡') return t('indicator.category.range');
+    if (category === '波动') return t('indicator.category.vol');
+    if (category === '全部') return t('indicator.category.all');
+    return category;
+  };
+
+  const categoryKey = (category: string) => {
+    if (category === '趋势') return 'trend';
+    if (category === '震荡') return 'range';
+    if (category === '波动') return 'vol';
+    return 'all';
+  };
+
+  const strategyLabel = (key: StrategyKey) => t(strategyLabelKey[key] ?? key);
+  const strategyNote = (key: StrategyKey) => {
+    const noteKey = strategyNoteKey[key];
+    return noteKey ? t(noteKey) : '';
+  };
+
+  const regimeLabel = (regime?: MarketRegimeInfo['regime']) => {
+    if (regime === 'TREND_UP') return t('ashare.panel.regime.up');
+    if (regime === 'TREND_DOWN') return t('ashare.panel.regime.down');
+    if (regime === 'RANGE') return t('ashare.panel.regime.range');
+    if (regime === 'HIGH_VOL') return t('ashare.panel.regime.highVol');
+    return '';
+  };
+
+  const updateConfigField = useCallback(
+    <T extends keyof RegimeConfig>(section: T, key: keyof RegimeConfig[T], value: number) => {
+      setConfigDraft((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          [section]: {
+            ...prev[section],
+            [key]: value,
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const fmtPct = (v?: number) => {
+    if (v == null || !Number.isFinite(v)) return '--';
+    return `${(v * 100).toFixed(0)}%`;
+  };
+
+  const fmtTs = (ts?: number) => {
+    if (!ts || !Number.isFinite(ts)) return '--';
+    return new Date(ts).toLocaleTimeString();
+  };
 
   const [freq, setFreq] = useState<AllowedFreq>('30m');
   const [loading, setLoading] = useState(false);
   const [bars, setBars] = useState<OHLCVBar[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+
+  const [regimeConfig, setRegimeConfig] = useState<RegimeConfig | null>(null);
+  const [configDraft, setConfigDraft] = useState<RegimeConfig | null>(null);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configVersion, setConfigVersion] = useState(0);
+
+  const [decision, setDecision] = useState<DecisionPayload | null>(null);
+  const [decisionLoading, setDecisionLoading] = useState(false);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [showAllReasons, setShowAllReasons] = useState(false);
+  const [showParams, setShowParams] = useState(true);
 
 
 
@@ -80,6 +240,97 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
   useEffect(() => {
     safeLocalStorageSet('openstock_strategy_params_v1', stParams);
   }, [stParams]);
+
+  // Load regime config
+  useEffect(() => {
+    let cancelled = false;
+    async function loadConfig() {
+      setConfigLoading(true);
+      try {
+        const res = await fetch(`/api/ashare/config?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const json = await res.json();
+        const cfg = json?.config as RegimeConfig | undefined;
+        if (!cfg || cancelled) return;
+        setRegimeConfig(cfg);
+        setConfigDraft(cfg);
+        setConfigVersion((v) => v + 1);
+      } catch {
+      } finally {
+        if (!cancelled) setConfigLoading(false);
+      }
+    }
+    if (symbol) loadConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
+
+  const refreshDecision = useCallback(async () => {
+    if (!symbol || !regimeConfig) return;
+    setDecisionLoading(true);
+    setDecisionError(null);
+    try {
+      const url = `/api/ashare/decision?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(freq)}&limit=500`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        setDecisionError(text || `HTTP ${res.status}`);
+        return;
+      }
+      const json = await res.json();
+      if (json?.decision) {
+        setDecision(json.decision as DecisionPayload);
+      }
+    } catch (e: any) {
+      setDecisionError(String(e?.message ?? e));
+    } finally {
+      setDecisionLoading(false);
+    }
+  }, [symbol, freq, regimeConfig]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!symbol || !regimeConfig) return;
+    refreshDecision();
+    const id = setInterval(() => {
+      if (!cancelled) refreshDecision();
+    }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [symbol, freq, regimeConfig, configVersion, refreshDecision]);
+
+  const applyConfig = useCallback(async () => {
+    if (!configDraft) return;
+    setConfigLoading(true);
+    try {
+      const res = await fetch('/api/ashare/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          weights: configDraft.weights,
+          thresholds: configDraft.thresholds,
+          positionCaps: configDraft.positionCaps,
+        }),
+      });
+      if (!res.ok) {
+        return;
+      }
+      const json = await res.json();
+      const cfg = json?.config as RegimeConfig | undefined;
+      if (cfg) {
+        setRegimeConfig(cfg);
+        setConfigDraft(cfg);
+        setConfigVersion((v) => v + 1);
+        refreshDecision();
+      }
+    } finally {
+      setConfigLoading(false);
+    }
+  }, [configDraft, symbol, refreshDecision]);
 // Indicators
   const [showMA5, setShowMA5] = useState(true);
   const [showMA10, setShowMA10] = useState(true);
@@ -260,7 +511,7 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
   // Modal (TradingView-like)
   const [dlgOpen, setDlgOpen] = useState(false);
   const [dlgTab, setDlgTab] = useState<'indicators' | 'strategies' | 'backtest'>('indicators');
-  const [dlgCategory, setDlgCategory] = useState<'全部' | '趋势' | '震荡' | '波动'>('全部');
+  const [dlgCategory, setDlgCategory] = useState<'all' | 'trend' | 'range' | 'vol'>('all');
   const [dlgQuery, setDlgQuery] = useState('');
   const [strategySort, setStrategySort] = useState<'winRate' | 'tradeCount' | 'netProfitPct'>('winRate');
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
@@ -1211,8 +1462,10 @@ useEffect(() => {
   const sortedIndicatorItems = useMemo(() => {
     const q = dlgQuery.trim().toLowerCase();
     const items = INDICATOR_OPTIONS.filter((it) => {
-      const catOk = dlgCategory === '全部' || it.category === dlgCategory;
-      const qOk = !q || it.name.toLowerCase().includes(q) || it.desc.toLowerCase().includes(q);
+      const catOk = dlgCategory === 'all' || categoryKey(it.category) === dlgCategory;
+      const nameText = t(indicatorNameKey[it.key]);
+      const descText = t(indicatorDescKey[it.key]);
+      const qOk = !q || nameText.toLowerCase().includes(q) || descText.toLowerCase().includes(q);
       return catOk && qOk;
     });
 
@@ -1248,7 +1501,9 @@ useEffect(() => {
     const q = dlgQuery.trim().toLowerCase();
     const items = STRATEGY_OPTIONS.filter((it) => {
       if (!q) return true;
-      return it.label.toLowerCase().includes(q) || (it.note ?? '').toLowerCase().includes(q);
+      const labelText = strategyLabel(it.key);
+      const noteText = strategyNote(it.key);
+      return labelText.toLowerCase().includes(q) || noteText.toLowerCase().includes(q);
     });
 
     // Keep "无策略" pinned at top, others sorted by backtest win rate (current freq)
@@ -1353,7 +1608,9 @@ useEffect(() => {
             <div className={cn('text-sm font-medium', changeClass)}>
               {derived.change == null ? '--' : `${derived.change > 0 ? '+' : ''}${fmt(derived.change)} (${derived.pct != null ? `${derived.pct > 0 ? '+' : ''}${fmt(derived.pct, 2)}%` : '--'})`}
             </div>
-            <div className="text-xs text-gray-500">{updatedAt ? `更新：${updatedAt}` : ''}</div>
+            <div className="text-xs text-gray-500">
+              {updatedAt ? t('ashare.panel.updatedAt', { time: updatedAt }) : ''}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1377,21 +1634,21 @@ useEffect(() => {
               ))}
             </div>
 
-            <Button type="button" variant="secondary" size="sm" className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')} onClick={openIndicators}>
-              指标
-            </Button>
+              <Button type="button" variant="secondary" size="sm" className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')} onClick={openIndicators}>
+               {t('ashare.panel.indicators')}
+              </Button>
 
-            <Button type="button" variant="secondary" size="sm" className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')} onClick={openStrategies}>
-              策略
-            </Button>
+              <Button type="button" variant="secondary" size="sm" className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')} onClick={openStrategies}>
+               {t('ashare.panel.strategies')}
+              </Button>
 
-            <Button type="button" variant="secondary" size="sm" className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')} onClick={openBacktest}>
-              回测
-            </Button>
+              <Button type="button" variant="secondary" size="sm" className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')} onClick={openBacktest}>
+               {t('ashare.panel.backtest')}
+              </Button>
 
-            <Button type="button" variant="secondary" size="sm" className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')} onClick={resetAll}>
-              重置
-            </Button>
+              <Button type="button" variant="secondary" size="sm" className={cn('rounded-full bg-white/5 text-gray-200 hover:bg-white/10')} onClick={resetAll}>
+               {t('ashare.panel.reset')}
+              </Button>
           </div>
         </div>
       </div>
@@ -1416,7 +1673,7 @@ useEffect(() => {
                       style={{ left: m.x, top: m.y, transform: 'translate(-50%, -100%)' }}
                     >
                       <span className="mr-1">{isSell ? '▼' : '▲'}</span>
-                      {isSell ? '卖出' : '买入'}
+                      {isSell ? t('action.sell') : t('action.buy')}
                     </div>
                   );
                 })}
@@ -1428,22 +1685,232 @@ useEffect(() => {
         </div>
       </div>
 
+      {/* Regime + external + params */}
+      <div className="px-5 pb-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="rounded-xl bg-white/5 border border-white/5 p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-gray-400">Regime & Decision</div>
+            {decision && (
+              <span
+                className={cn(
+                  'text-[10px] px-2 py-0.5 rounded border',
+                  decision.regime === 'TREND'
+                    ? 'text-red-300 border-red-400/30 bg-red-500/10'
+                    : decision.regime === 'PANIC'
+                      ? 'text-yellow-300 border-yellow-400/30 bg-yellow-500/10'
+                      : 'text-blue-300 border-blue-400/30 bg-blue-500/10'
+                )}
+              >
+                {decision.regime}
+              </span>
+            )}
+          </div>
+          <div className="mt-2 text-sm text-gray-100">
+            {decisionLoading ? 'Loading...' : decisionError ? `Error: ${decisionError}` : decision?.strategy ?? '--'}
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-400">
+            <div>Action</div>
+            <div className="text-gray-100">
+              {decision?.action ?? '--'}
+            </div>
+            <div>Regime Confidence</div>
+            <div className="text-gray-100">
+              {decision ? fmtPct(decision.regime_confidence) : '--'}
+            </div>
+            <div>Position Cap</div>
+            <div className="text-gray-100">
+              {decision ? fmtPct(decision.position_cap) : '--'}
+            </div>
+          </div>
+          <div className="mt-3 text-xs text-gray-400">Reasons</div>
+          <div className="mt-1 space-y-1 text-xs text-gray-300">
+            {(decision?.reasons ?? []).slice(0, showAllReasons ? undefined : 3).map((r, i) => (
+              <div key={`${r}-${i}`}>- {r}</div>
+            ))}
+            {(decision?.reasons ?? []).length === 0 && <div>--</div>}
+          </div>
+          {(decision?.reasons ?? []).length > 3 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mt-2 h-7 px-2 text-[10px] text-gray-300"
+              onClick={() => setShowAllReasons((v) => !v)}
+            >
+              {showAllReasons ? '收起' : '展开更多'}
+            </Button>
+          )}
+        </div>
+
+        <div className="rounded-xl bg-white/5 border border-white/5 p-4">
+          <div className="text-xs text-gray-400">External Signals</div>
+          <div className="mt-2 text-xs text-gray-300">
+            {decision?.external_signals?.news ? (
+              <div>
+                News Sentiment: {decision.external_signals.news.score.toFixed(2)} / conf{' '}
+                {decision.external_signals.news.confidence.toFixed(2)} · {fmtTs(decision.external_signals.news.ts)}
+              </div>
+            ) : (
+              <div>News signal: unavailable (fallback to Kline)</div>
+            )}
+          </div>
+          <div className="mt-2 text-xs text-gray-300">
+            {decision?.external_signals?.realtime ? (
+              <div>
+                Realtime Surprise: vol {decision.external_signals.realtime.volSurprise.toFixed(2)} · amt{' '}
+                {decision.external_signals.realtime.amtSurprise.toFixed(2)} · {fmtTs(decision.external_signals.realtime.ts)}
+              </div>
+            ) : (
+              <div>Realtime signal: unavailable (fallback to Kline)</div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-white/5 border border-white/5 p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-gray-400">参数面板</div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[10px] text-gray-300"
+                onClick={() => setShowParams((v) => !v)}
+              >
+                {showParams ? '收起' : '展开'}
+              </Button>
+              <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-[10px]" onClick={applyConfig} disabled={configLoading}>
+                Apply
+              </Button>
+            </div>
+          </div>
+          {showParams && configDraft && (
+            <div className="mt-3 space-y-3 text-xs">
+              <div>
+                <div className="text-gray-400">weights</div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <div className="text-[10px] text-gray-500">w_trend</div>
+                    <Input type="number" step="0.01" value={configDraft.weights.w_trend} onChange={(e) => updateConfigField('weights', 'w_trend', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">w_range</div>
+                    <Input type="number" step="0.01" value={configDraft.weights.w_range} onChange={(e) => updateConfigField('weights', 'w_range', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">w_panic</div>
+                    <Input type="number" step="0.01" value={configDraft.weights.w_panic} onChange={(e) => updateConfigField('weights', 'w_panic', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">w_news</div>
+                    <Input type="number" step="0.01" value={configDraft.weights.w_news} onChange={(e) => updateConfigField('weights', 'w_news', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">w_realtime</div>
+                    <Input type="number" step="0.01" value={configDraft.weights.w_realtime} onChange={(e) => updateConfigField('weights', 'w_realtime', Number(e.target.value))} />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="text-gray-400">thresholds</div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <div className="text-[10px] text-gray-500">trendScore</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.trendScore} onChange={(e) => updateConfigField('thresholds', 'trendScore', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">panicVolRatio</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.panicVolRatio} onChange={(e) => updateConfigField('thresholds', 'panicVolRatio', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">panicDrawdown</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.panicDrawdown} onChange={(e) => updateConfigField('thresholds', 'panicDrawdown', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">volRatioLow</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.volRatioLow} onChange={(e) => updateConfigField('thresholds', 'volRatioLow', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">volRatioHigh</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.volRatioHigh} onChange={(e) => updateConfigField('thresholds', 'volRatioHigh', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">minLiquidityRatio</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.minLiquidityRatio} onChange={(e) => updateConfigField('thresholds', 'minLiquidityRatio', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">realtimeVolSurprise</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.realtimeVolSurprise} onChange={(e) => updateConfigField('thresholds', 'realtimeVolSurprise', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">realtimeAmtSurprise</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.realtimeAmtSurprise} onChange={(e) => updateConfigField('thresholds', 'realtimeAmtSurprise', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">newsPanicThreshold</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.newsPanicThreshold} onChange={(e) => updateConfigField('thresholds', 'newsPanicThreshold', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">newsTrendThreshold</div>
+                    <Input type="number" step="0.01" value={configDraft.thresholds.newsTrendThreshold} onChange={(e) => updateConfigField('thresholds', 'newsTrendThreshold', Number(e.target.value))} />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="text-gray-400">positionCaps</div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <div className="text-[10px] text-gray-500">trend</div>
+                    <Input type="number" step="0.01" value={configDraft.positionCaps.trend} onChange={(e) => updateConfigField('positionCaps', 'trend', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">range</div>
+                    <Input type="number" step="0.01" value={configDraft.positionCaps.range} onChange={(e) => updateConfigField('positionCaps', 'range', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">panic</div>
+                    <Input type="number" step="0.01" value={configDraft.positionCaps.panic} onChange={(e) => updateConfigField('positionCaps', 'panic', Number(e.target.value))} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          {!configDraft && <div className="mt-3 text-xs text-gray-500">Loading config...</div>}
+        </div>
+      </div>
+
       {/* Footer cards */}
       <div className="px-5 pb-5 grid grid-cols-1 md:grid-cols-3 gap-3">
       {/* ... 保留原有的 MA, RSI 卡片 ... */}
         {/* === 新增：市场状态卡片 (插入在策略卡片之前) === */}
         <div className="rounded-xl bg-white/5 border border-white/5 p-4 relative overflow-hidden">
           <div className="relative z-10">
-            <div className="text-xs text-gray-400 flex items-center gap-2">
-              市场状态
-              {regimeInfo?.regime === 'TREND_UP' && <span className="text-red-400 border border-red-400/30 px-1 rounded text-[10px]">上涨</span>}
-              {regimeInfo?.regime === 'TREND_DOWN' && <span className="text-green-400 border border-green-400/30 px-1 rounded text-[10px]">下跌</span>}
-              {regimeInfo?.regime === 'RANGE' && <span className="text-blue-400 border border-blue-400/30 px-1 rounded text-[10px]">震荡</span>}
-              {regimeInfo?.regime === 'HIGH_VOL' && <span className="text-yellow-400 border border-yellow-400/30 px-1 rounded text-[10px]">高波动</span>}
-            </div>
-            <div className="mt-2 text-sm text-gray-100 font-medium truncate">
-              {regimeInfo?.description || '分析中...'}
-            </div>
+              <div className="text-xs text-gray-400 flex items-center gap-2">
+               {t('ashare.panel.marketRegime')}
+                {regimeInfo?.regime === 'TREND_UP' && (
+                  <span className="text-red-400 border border-red-400/30 px-1 rounded text-[10px]">
+                    {t('ashare.panel.regime.up')}
+                  </span>
+                )}
+                {regimeInfo?.regime === 'TREND_DOWN' && (
+                  <span className="text-green-400 border border-green-400/30 px-1 rounded text-[10px]">
+                    {t('ashare.panel.regime.down')}
+                  </span>
+                )}
+                {regimeInfo?.regime === 'RANGE' && (
+                  <span className="text-blue-400 border border-blue-400/30 px-1 rounded text-[10px]">
+                    {t('ashare.panel.regime.range')}
+                  </span>
+                )}
+                {regimeInfo?.regime === 'HIGH_VOL' && (
+                  <span className="text-yellow-400 border border-yellow-400/30 px-1 rounded text-[10px]">
+                    {t('ashare.panel.regime.highVol')}
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 text-sm text-gray-100 font-medium truncate">
+              {regimeInfo?.description || t('ashare.panel.regime.loading')}
+              </div>
             <div className="mt-1 text-[10px] text-gray-500 font-mono">
               ADX:{regimeInfo?.adx.toFixed(0)} ATR%:{regimeInfo?.atrPct.toFixed(2)}
             </div>
@@ -1468,9 +1935,11 @@ useEffect(() => {
           <div className="mt-2 text-sm text-gray-100">{fmt(derived.rsi14, 1)}</div>
         </div>
         <div className="rounded-xl bg-white/5 border border-white/5 p-4">
-          <div className="text-xs text-gray-400">策略</div>
-          <div className="mt-2 text-sm text-gray-100">{STRATEGY_OPTIONS.find((s) => s.key === strategy)?.label ?? strategy}</div>
-          <div className="mt-1 text-xs text-gray-500">{strategyCalc.status ?? '选择一个策略以显示 买入/卖出 信号（可在弹窗查看回测）'}</div>
+          <div className="text-xs text-gray-400">{t('ashare.panel.strategy')}</div>
+          <div className="mt-2 text-sm text-gray-100">{strategyLabel(strategy)}</div>
+          <div className="mt-1 text-xs text-gray-500">
+            {strategyCalc.status ?? t('ashare.panel.statusHint')}
+          </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button
               type="button"
@@ -1482,19 +1951,19 @@ useEffect(() => {
               )}
               onClick={() => setAutoStrategy((prev) => !prev)}
             >
-              动态策略 {autoStrategy ? '开' : '关'}
+               {t('ashare.panel.autoStrategy')} {autoStrategy ? t('ashare.panel.autoOn') : t('ashare.panel.autoOff')}
             </Button>
             {autoStrategy && recommendations[0] && (
-              <span className="text-[10px] text-yellow-400/90">
-                推荐：{recommendations[0].label}
-              </span>
+                <span className="text-[10px] text-yellow-400/90">
+                 {t('ashare.panel.recommended')}：{recommendations[0].label}
+                </span>
             )}
           </div>
           {strategy !== 'none' && strategySummaryMap[strategy] && (
-            <div className="mt-1 text-xs text-gray-500">
-              胜率 {strategySummaryMap[strategy].tradeCount > 0 && Number.isFinite(strategySummaryMap[strategy].winRate) ? `${fmt(strategySummaryMap[strategy].winRate, 2)}%` : '--'}
-              <span className="mx-2 text-gray-600">·</span>
-              交易次数 {strategySummaryMap[strategy].tradeCount}
+              <div className="mt-1 text-xs text-gray-500">
+               {t('ashare.panel.winRate')} {strategySummaryMap[strategy].tradeCount > 0 && Number.isFinite(strategySummaryMap[strategy].winRate) ? `${fmt(strategySummaryMap[strategy].winRate, 2)}%` : '--'}
+                <span className="mx-2 text-gray-600">·</span>
+               {t('ashare.panel.tradeCount')} {strategySummaryMap[strategy].tradeCount}
             </div>
           )}
         </div>
@@ -1505,7 +1974,11 @@ useEffect(() => {
         <DialogContent className="!w-[90vw] !max-w-[90vw] !h-[90vh] !max-h-[90vh] p-0 border border-white/10 bg-[#0d0d0d] text-white overflow-hidden flex flex-col" style={{ width: '90vw', height: '90vh', maxWidth: '90vw', maxHeight: '90vh' }}>
           <DialogHeader>
             <DialogTitle>
-              {dlgTab === 'indicators' ? '指标' : dlgTab === 'strategies' ? '策略' : '回测'}
+              {dlgTab === 'indicators'
+                ? t('ashare.panel.indicators')
+                : dlgTab === 'strategies'
+                  ? t('ashare.panel.strategies')
+                  : t('ashare.panel.backtest')}
             </DialogTitle>
           </DialogHeader>
 
@@ -1520,9 +1993,9 @@ useEffect(() => {
                 dlgTab === 'indicators' && 'bg-white/15 text-white'
               )}
               onClick={() => setDlgTab('indicators')}
-            >
-              指标
-            </Button>
+              >
+                {t('ashare.panel.indicators')}
+              </Button>
             <Button
               type="button"
               variant="secondary"
@@ -1532,9 +2005,9 @@ useEffect(() => {
                 dlgTab === 'strategies' && 'bg-white/15 text-white'
               )}
               onClick={() => setDlgTab('strategies')}
-            >
-              策略
-            </Button>
+              >
+                {t('ashare.panel.strategies')}
+              </Button>
             <Button
               type="button"
               variant="secondary"
@@ -1544,41 +2017,49 @@ useEffect(() => {
                 dlgTab === 'backtest' && 'bg-white/15 text-white'
               )}
               onClick={() => setDlgTab('backtest')}
-            >
-              回测
-            </Button>
+              >
+                {t('ashare.panel.backtest')}
+              </Button>
 
             <div className="flex-1" />
 
             <Input
               value={dlgQuery}
               onChange={(e) => setDlgQuery(e.target.value)}
-              placeholder={dlgTab === 'indicators' ? '搜索指标…' : '搜索策略…'}
+              placeholder={
+                dlgTab === 'indicators' ? t('ashare.searchIndicators') : t('ashare.searchStrategies')
+              }
               className="h-9 w-56 rounded-xl bg-white/5 border-white/10 text-gray-100 text-sm"
             />
           </div>
 
           {/* Indicator categories */}
           {dlgTab === 'indicators' && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {(['全部', '趋势', '震荡', '波动'] as const).map((c) => (
-                <Button
-                  key={c}
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className={cn(
-                    'rounded-full bg-white/5 text-gray-200 hover:bg-white/10',
-                    dlgCategory === c && 'bg-white/15 text-white'
-                  )}
-                  onClick={() => setDlgCategory(c)}
-                >
-                  {c}
-                </Button>
-              ))}
-              <div className="ml-auto text-[11px] text-gray-500">
-                点击条目启用/关闭；星标用于排序（本地保存）
-              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {(['all', 'trend', 'range', 'vol'] as const).map((c) => (
+                  <Button
+                    key={c}
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className={cn(
+                      'rounded-full bg-white/5 text-gray-200 hover:bg-white/10',
+                      dlgCategory === c && 'bg-white/15 text-white'
+                    )}
+                    onClick={() => setDlgCategory(c)}
+                  >
+                    {c === 'all'
+                      ? t('indicator.category.all')
+                      : c === 'trend'
+                        ? t('indicator.category.trend')
+                        : c === 'range'
+                          ? t('indicator.category.range')
+                          : t('indicator.category.vol')}
+                  </Button>
+                ))}
+                <div className="ml-auto text-[11px] text-gray-500">
+                  {t('ashare.panel.enableHint')}
+                </div>
             </div>
           )}
 
@@ -1606,10 +2087,10 @@ useEffect(() => {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-sm text-white">{it.name}</div>
-                          <div className="mt-1 text-[11px] text-gray-400">{it.desc}</div>
+                          <div className="text-sm text-white">{t(indicatorNameKey[it.key])}</div>
+                          <div className="mt-1 text-[11px] text-gray-400">{t(indicatorDescKey[it.key])}</div>
                           <div className="mt-1 text-[10px] text-gray-500">
-                            {it.location === 'overlay' ? '叠加主图' : '独立面板'} · {it.category}
+                            {it.location === 'overlay' ? t('ashare.panel.overlay') : t('ashare.panel.separatePanel')} · {categoryLabel(it.category)}
                           </div>
                         </div>
 
@@ -1620,7 +2101,7 @@ useEffect(() => {
                               enabled ? 'bg-emerald-500/20 text-emerald-200' : 'bg-white/10 text-gray-300'
                             )}
                           >
-                            {enabled ? '已启用' : '未启用'}
+                            {enabled ? t('common.enabled') : t('common.disabled')}
                           </div>
 
                           <button
@@ -1645,43 +2126,43 @@ useEffect(() => {
             {dlgTab === 'strategies' && (
               <div className="space-y-2 h-full flex flex-col min-h-0">
                 <div className="flex items-center gap-2">
-                  <div className="text-xs text-gray-400">排序：</div>
+                  <div className="text-xs text-gray-400">{t('ashare.panel.sortBy')}</div>
                   <Button
                     type="button"
                     variant={strategySort === 'winRate' ? 'secondary' : 'ghost'}
                     size="sm"
                     className="rounded-full"
                     onClick={() => setStrategySort('winRate')}
-                  >
-                    胜率
-                  </Button>
+                    >
+                      {t('ashare.panel.sort.winRate')}
+                    </Button>
                   <Button
                     type="button"
                     variant={strategySort === 'tradeCount' ? 'secondary' : 'ghost'}
                     size="sm"
                     className="rounded-full"
                     onClick={() => setStrategySort('tradeCount')}
-                  >
-                    交易次数
-                  </Button>
+                    >
+                      {t('ashare.panel.sort.tradeCount')}
+                    </Button>
                   <Button
                     type="button"
                     variant={strategySort === 'netProfitPct' ? 'secondary' : 'ghost'}
                     size="sm"
                     className="rounded-full"
                     onClick={() => setStrategySort('netProfitPct')}
-                  >
-                    净收益
-                  </Button>
+                    >
+                      {t('ashare.panel.sort.netProfit')}
+                    </Button>
                 </div>
 
                 <div className="space-y-2 overflow-auto pr-1 flex-1 min-h-0">
                   {/* === 智能推荐（置于列表顶部） === */}
                   {recommendations.length > 0 && (
                     <div className="mb-4 space-y-2">
-                      <div className="text-xs text-yellow-400/80 font-medium px-1 flex items-center gap-1">
-                        <span>✨</span> 智能推荐 ({regimeInfo?.regime})
-                      </div>
+                        <div className="text-xs text-yellow-400/80 font-medium px-1 flex items-center gap-1">
+                         <span>✨</span> {t('ashare.panel.smartRecommend')}{regimeInfo?.regime ? ` (${regimeLabel(regimeInfo.regime)})` : ''}
+                        </div>
                       <div className="grid grid-cols-1 gap-2">
                         {recommendations.slice(0, 3).map((rec, idx) => (
                           <div
@@ -1695,15 +2176,15 @@ useEffect(() => {
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-yellow-500">Top{idx + 1} {rec.label}</span>
-                                <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300">
-                                  评分 {rec.score.toFixed(0)}
-                                </span>
+                                  <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300">
+                                   {t('ashare.panel.score')} {rec.score.toFixed(0)}
+                                  </span>
                               </div>
                               <div className="text-[11px] text-gray-400 mt-0.5 truncate">{rec.reason}</div>
                             </div>
                             <div className="text-right shrink-0">
                               <div className="text-xs font-medium text-gray-200">PF {rec.pf.toFixed(2)}</div>
-                              <div className="text-[10px] text-gray-500">净利 {rec.netProfitPct.toFixed(1)}%</div>
+                              <div className="text-[10px] text-gray-500">{t('ashare.panel.netProfitShort')} {rec.netProfitPct.toFixed(1)}%</div>
                             </div>
                           </div>
                         ))}
@@ -1730,13 +2211,13 @@ useEffect(() => {
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="text-sm text-white">{it.label}</div>
-                            <div className="mt-1 text-[11px] text-gray-400">{it.note ?? ''}</div>
+                            <div className="text-sm text-white">{strategyLabel(it.key)}</div>
+                            <div className="mt-1 text-[11px] text-gray-400">{strategyNote(it.key)}</div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <div className="text-[11px] text-gray-300">
-                              胜率 {winText} · 交易 {closedTrades} · 净收益 {netText}
-                            </div>
+                              <div className="text-[11px] text-gray-300">
+                                {t('ashare.panel.winRate')} {winText} · {t('ashare.panel.tradeCount')} {closedTrades} · {t('ashare.panel.netProfit')} {netText}
+                              </div>
 
                             {it.key !== 'none' && (
                               <Button
@@ -1749,7 +2230,7 @@ useEffect(() => {
                                   setRuleOpen(true);
                                 }}
                               >
-                                规则
+                                {t('ashare.panel.rule')}
                               </Button>
                             )}
 
@@ -1762,7 +2243,7 @@ useEffect(() => {
                                 setDlgOpen(false);
                               }}
                             >
-                              {selected ? '已选择' : '选择'}
+                              {selected ? t('ashare.panel.selected') : t('ashare.panel.select')}
                             </Button>
                           </div>
                         </div>
@@ -1772,7 +2253,7 @@ useEffect(() => {
                 </div>
 
                 <div className="pt-3 border-t border-white/10">
-                  <div className="text-xs text-gray-300 mb-2">参数</div>
+                  <div className="text-xs text-gray-300 mb-2">{t('ashare.panel.parameters')}</div>
                   <StrategyParamsPanel strategy={strategy} stParams={stParams} setStParams={setStParams} />
                 </div>
               </div>
@@ -1782,7 +2263,7 @@ useEffect(() => {
               <div className="flex gap-3 h-full min-h-0">
                 {/* Left: strategy list */}
                 <div className="w-64 shrink-0 rounded-xl border border-white/10 bg-white/5 overflow-hidden h-full flex flex-col min-h-0">
-                  <div className="px-3 py-2 text-sm font-medium border-b border-white/10">策略列表</div>
+                  <div className="px-3 py-2 text-sm font-medium border-b border-white/10">{t('ashare.panel.strategyList')}</div>
                   <div className="overflow-auto flex-1 min-h-0">
                     {sortedStrategyItems.map((it) => {
                       const s = strategySummaryMap[it.key];
@@ -1809,12 +2290,12 @@ useEffect(() => {
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-2">
-                                <div className="font-medium truncate">{it.label}</div>
-                                {selected && <div className="text-[11px] text-emerald-400">当前</div>}
+                                <div className="font-medium truncate">{strategyLabel(it.key)}</div>
+                                {selected && <div className="text-[11px] text-emerald-400">{t('common.current')}</div>}
                               </div>
-                              <div className="text-[11px] text-gray-400 mt-0.5">
-                                胜率 {winText} · 交易 {trades} · 净收益 {netText}
-                              </div>
+                                <div className="text-[11px] text-gray-400 mt-0.5">
+                                 {t('ashare.panel.winRate')} {winText} · {t('ashare.panel.tradeCount')} {trades} · {t('ashare.panel.netProfit')} {netText}
+                                </div>
                             </div>
                           </div>
                         </button>
@@ -1827,7 +2308,7 @@ useEffect(() => {
                 <div className="flex-1 space-y-3 overflow-auto pr-1 min-h-0">
                 {/* === 插入：回测范围选择器 === */}
                     <div className="flex items-center gap-2 mb-3 bg-black/20 p-1 rounded-lg">
-                      <div className="text-xs text-gray-500 px-2 shrink-0">范围</div>
+                      <div className="text-xs text-gray-500 px-2 shrink-0">{t('ashare.panel.range')}</div>
                       {(['full', 'recent_60', 'recent_120'] as const).map(m => (
                         <button
                           key={m}
@@ -1838,19 +2319,23 @@ useEffect(() => {
                             btWindowMode === m ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"
                           )}
                         >
-                          {m === 'full' ? '全部' : m === 'recent_60' ? '近60天' : '近120天'}
+                          {m === 'full'
+                            ? t('ashare.panel.rangeAll')
+                            : m === 'recent_60'
+                              ? t('ashare.panel.rangeRecent60')
+                              : t('ashare.panel.rangeRecent120')}
                         </button>
                       ))}
                     </div>
                     {/* === 插入结束 === */}
                   <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                     <div className="flex flex-col gap-1">
-                      <div className="text-sm text-gray-400">当前策略</div>
+                      <div className="text-sm text-gray-400">{t('ashare.panel.currentStrategy')}</div>
                       <div className="text-lg font-semibold">
-                        {STRATEGY_OPTIONS.find((s) => s.key === strategy)?.label ?? strategy}
+                        {strategyLabel(strategy)}
                       </div>
                       <div className="text-xs text-gray-500">
-                        回测模型：信号收盘生成 → 下一根开盘成交
+                        {t('ashare.panel.backtestModel')}
                       </div>
                     </div>
 
@@ -1872,58 +2357,72 @@ useEffect(() => {
 
                     <div className="mt-3">
                       {strategy === 'none' ? (
-                        <div className="text-sm text-gray-400 px-2 py-6">请先选择一个策略，再查看回测结果。</div>
+                        <div className="text-sm text-gray-400 px-2 py-6">{t('ashare.panel.backtestEmpty')}</div>
                       ) : !backtest.ok ? (
-                        <div className="text-sm text-gray-400 px-2 py-6">{backtest.error ?? '回测失败'}</div>
+                        <div className="text-sm text-gray-400 px-2 py-6">{backtest.error ?? t('ashare.panel.backtestFailed')}</div>
                       ) : (
                         <div className="space-y-3">
                           <div className="text-xs text-gray-500">
-                            样本：{backtest.startDate} ~ {backtest.endDate}（{backtest.barCount} 根K，交易 {backtest.tradeCount} 笔）
+                            {t('ashare.panel.sample', {
+                              start: backtest.startDate,
+                              end: backtest.endDate,
+                              bars: backtest.barCount,
+                              trades: backtest.tradeCount,
+                            })}
                           </div>
 
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                             <div className="rounded-lg border border-white/10 bg-black/20 p-2">
-                              <div className="text-[11px] text-gray-400">净收益</div>
+                              <div className="text-[11px] text-gray-400">{t('ashare.panel.netProfit')}</div>
                               <div className="text-base font-semibold">{fmt(backtest.netProfitPct, 2)}%</div>
-                              <div className="text-[11px] text-gray-500 mt-0.5">净收益金额 {fmt(backtest.netProfit, 0)}</div>
-                              <div className="text-[11px] text-gray-500">总收益 {fmt((backtest as any).grossProfit ?? 0, 0)} · 总亏损 {fmt((backtest as any).grossLoss ?? 0, 0)}</div>
+                              <div className="text-[11px] text-gray-500 mt-0.5">
+                                {t('ashare.panel.netProfitAmount', { value: fmt(backtest.netProfit, 0) })}
+                              </div>
+                              <div className="text-[11px] text-gray-500">
+                                {t('ashare.panel.grossProfitLoss', {
+                                  profit: fmt((backtest as any).grossProfit ?? 0, 0),
+                                  loss: fmt((backtest as any).grossLoss ?? 0, 0),
+                                })}
+                              </div>
                             </div>
 
                             <div className="rounded-lg border border-white/10 bg-black/20 p-2">
-                              <div className="text-[11px] text-gray-400">最大回撤</div>
+                              <div className="text-[11px] text-gray-400">{t('ashare.panel.maxDrawdown')}</div>
                               <div className="text-base font-semibold">{fmt(backtest.maxDrawdownPct, 2)}%</div>
                               <div className="text-[11px] text-gray-500 mt-0.5">{fmt(backtest.maxDrawdown, 0)}</div>
                             </div>
 
                             <div className="rounded-lg border border-white/10 bg-black/20 p-2">
-                              <div className="text-[11px] text-gray-400">胜率</div>
+                              <div className="text-[11px] text-gray-400">{t('ashare.panel.winRate')}</div>
                               <div className="text-base font-semibold">{fmt(backtest.winRate, 1)}%</div>
-                              <div className="text-[11px] text-gray-500 mt-0.5">交易 {backtest.tradeCount} 笔</div>
+                              <div className="text-[11px] text-gray-500 mt-0.5">
+                                {t('ashare.panel.tradeCount')} {backtest.tradeCount}
+                              </div>
                             </div>
 
                             <div className="rounded-lg border border-white/10 bg-black/20 p-2">
-                              <div className="text-[11px] text-gray-400">买入持有对比</div>
+                              <div className="text-[11px] text-gray-400">{t('ashare.panel.buyHold')}</div>
                               <div className="text-base font-semibold">{fmt(backtest.buyHoldPct, 2)}%</div>
                               <div className="text-[11px] text-gray-500 mt-0.5">
-                                超额 {fmt(backtest.netProfitPct - backtest.buyHoldPct, 2)}%
+                                {t('ashare.panel.excessReturn', { value: fmt(backtest.netProfitPct - backtest.buyHoldPct, 2) })}
                               </div>
                             </div>
                           </div>
 
                           <div className="rounded-xl border border-white/10 bg-black/20 p-2">
-                            <div className="text-[11px] text-gray-400 mb-2">权益曲线</div>
+                            <div className="text-[11px] text-gray-400 mb-2">{t('ashare.panel.equityCurve')}</div>
                             {/* 注意：EquitySparkline组件需要定义或导入 */}
                             {equityPoints.length > 1 ? (
-                              <EquitySparkline points={equityPoints} height={80} />
+                              <EquitySparkline points={equityPoints} height={80} hoverHint={t('ashare.panel.hoverHint')} />
                             ) : (
                               <div className="h-20 rounded flex items-center justify-center bg-white/5 border border-white/10">
-                                <div className="text-gray-500 text-sm">暂无权益曲线数据</div>
+                                <div className="text-gray-500 text-sm">{t('ashare.panel.noEquityData')}</div>
                               </div>
                             )}
                           </div>
 
                           <div className="rounded-xl border border-white/10 bg-black/20 p-2">
-                            <div className="text-[11px] text-gray-400 mb-2">交易列表</div>
+                            <div className="text-[11px] text-gray-400 mb-2">{t('ashare.panel.tradeList')}</div>
                             <TradeTable trades={backtest.trades} lotSize={backtest.lotSize} />
                           </div>
                         </div>
@@ -1951,9 +2450,11 @@ useEffect(() => {
 function EquitySparkline({
   points,
   height = 80,
+  hoverHint = 'Hover to see value',
 }: {
   points: Array<{ time: number; value: number }>;
   height?: number;
+  hoverHint?: string;
 }) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const wrapRef = React.useRef<HTMLDivElement | null>(null);
@@ -2079,7 +2580,7 @@ function EquitySparkline({
             {formatTime(hover.time)} · {fmt(hover.value, 0)}
           </span>
         ) : (
-          <span className="text-gray-500">Hover 显示数值</span>
+          <span className="text-gray-500">{hoverHint}</span>
         )}
       </div>
     </div>

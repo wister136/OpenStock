@@ -1,11 +1,12 @@
 import Link from 'next/link';
 
 import { getSimpleQuote } from '@/lib/actions/quotes.actions';
+import { tServer } from '@/lib/i18n/server';
 
 type Props = {
-  symbol: string; // e.g. NASDAQ:NVDA / SSE:603516
-  label: string; // e.g. NVDA / 603516
-  name?: string; // optional display name
+  symbol: string;
+  label: string;
+  name?: string;
 };
 
 function tradingViewSymbolPage(symbol: string): string {
@@ -29,28 +30,23 @@ export default async function InternalStockCard({ symbol, label, name }: Props) 
   const q = await getSimpleQuote(symbol);
   const isUp = (q?.change ?? 0) > 0;
   const isDown = (q?.change ?? 0) < 0;
-  // 规则：涨=红，跌=绿（A股常用配色）
   const changeClass = isUp ? 'text-red-500' : isDown ? 'text-green-500' : 'text-gray-300';
 
-  // ✅ 注意：这个组件是 Server Component（async）。
-  // 不能在这里写 onClick 等事件处理器，否则会触发：
-  // "Event handlers cannot be passed to Client Component props"。
-  // 这里用“覆盖层 Link + 置顶外链按钮”的结构，达到：
-  // - 点击卡片任意位置 => 站内详情
-  // - 点击 TradingView 按钮 => 新标签打开 TradingView（且不会被覆盖层拦截）
+  const detailLabel = tServer('common.viewDetails');
+  const tradingViewTitle = tServer('btn.openTradingView');
 
   return (
     <div className="group relative rounded-2xl bg-[#111] border border-white/5 shadow-sm overflow-hidden">
-      {/* Click-anywhere internal navigation overlay */}
       <Link
         href={`/stocks/${encodeURIComponent(symbol)}`}
-        aria-label={`${label} 详情`}
+        aria-label={`${label} ${detailLabel}`}
         className="absolute inset-0 z-10"
       >
-        <span className="sr-only">{label} 详情</span>
+        <span className="sr-only">
+          {label} {detailLabel}
+        </span>
       </Link>
 
-      {/* Content */}
       <div className="relative z-0 p-5 transition-colors group-hover:bg-white/5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -58,13 +54,12 @@ export default async function InternalStockCard({ symbol, label, name }: Props) 
             {name ? <div className="text-xs text-gray-400 truncate mt-1">{name}</div> : null}
           </div>
 
-          {/* External open button (higher z-index than overlay) */}
           <a
             href={tradingViewSymbolPage(symbol)}
             target="_blank"
             rel="noopener noreferrer"
             className="relative z-20 shrink-0 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 text-gray-200"
-            title="在 TradingView 打开"
+            title={tradingViewTitle}
           >
             TradingView
             <span aria-hidden>↗</span>

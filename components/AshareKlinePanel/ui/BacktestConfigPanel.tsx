@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n';
 import { DEFAULT_BACKTEST_CONFIG, type BacktestConfig } from '../types';
 
 export type PyramidingCandidate = {
@@ -51,6 +52,7 @@ export default function BacktestConfigPanel({
   pyramidingOptimizing,
   onApplyPyramidingCandidate,
 }: Props) {
+  const { t } = useI18n();
   // --- local editable text states ---
   const capEditing = useRef(false);
   const feeEditing = useRef(false);
@@ -151,7 +153,7 @@ export default function BacktestConfigPanel({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-xs text-gray-400">初始资金</div>
+        <div className="text-xs text-gray-400">{t('backtest.initialCapital')}</div>
         <Input
           value={capitalText}
           onFocus={() => (capEditing.current = true)}
@@ -168,7 +170,7 @@ export default function BacktestConfigPanel({
           className="h-8 w-28 rounded-lg bg-white/5 border-white/10 text-gray-100 text-xs"
         />
 
-        <div className="ml-2 text-xs text-gray-400">手续费(bps)</div>
+        <div className="ml-2 text-xs text-gray-400">{t('backtest.feeBps')}</div>
         <Input
           value={feeBpsText}
           onFocus={() => (feeEditing.current = true)}
@@ -184,16 +186,16 @@ export default function BacktestConfigPanel({
         />
 
         {/* Entry mode */}
-        <label className="ml-2 flex items-center gap-2 text-xs text-gray-300 select-none" title="开启后：每次入场使用约 99% 可用资金计算最大可买手数（忽略固定手数）。若启用风控动态仓位，则以风控为准。">
+        <label className="ml-2 flex items-center gap-2 text-xs text-gray-300 select-none" title={t('backtest.allInHint')}>
           <input
             type="checkbox"
             checked={allInMode}
             onChange={(e) => setConfig((prev) => ({ ...prev, entryMode: e.target.checked ? 'ALL_IN' : 'FIXED' }))}
           />
-          全仓复利
+          {t('backtest.allIn')}
         </label>
 
-        <div className="ml-2 text-xs text-gray-400">滑点(bps)</div>
+        <div className="ml-2 text-xs text-gray-400">{t('backtest.slippageBps')}</div>
         <Input
           value={slippageBpsText}
           onFocus={() => (slipEditing.current = true)}
@@ -208,7 +210,7 @@ export default function BacktestConfigPanel({
           className="h-8 w-20 rounded-lg bg-white/5 border-white/10 text-gray-100 text-xs"
         />
 
-        <div className="ml-2 text-xs text-gray-400">交易日期</div>
+        <div className="ml-2 text-xs text-gray-400">{t('backtest.tradeDate')}</div>
         <Input
           type="date"
           value={config.dateFrom ?? ''}
@@ -219,7 +221,7 @@ export default function BacktestConfigPanel({
             }))
           }
           className="h-8 w-[150px] rounded-lg bg-white/5 border-white/10 text-gray-100 text-xs"
-          title="回测起始日期（不含时间）"
+          title={t('backtest.dateFromTitle')}
         />
         <div className="text-xs text-gray-500">~</div>
         <Input
@@ -232,21 +234,21 @@ export default function BacktestConfigPanel({
             }))
           }
           className="h-8 w-[150px] rounded-lg bg-white/5 border-white/10 text-gray-100 text-xs"
-          title="回测结束日期（不含时间）"
+          title={t('backtest.dateToTitle')}
         />
 
         <button
           type="button"
           onClick={() => setConfig((prev) => ({ ...prev, dateFrom: undefined, dateTo: undefined }))}
           className="h-8 px-2 rounded-lg text-xs border border-white/10 bg-white/5 hover:bg-white/10 text-gray-100"
-          title="清除日期范围（使用全部数据回测）"
+          title={t('backtest.clearDateRangeTitle')}
         >
-          清除
+          {t('common.clear')}
         </button>
 
 
 
-        <div className="ml-2 text-xs text-gray-400">回撤上限(%)</div>
+        <div className="ml-2 text-xs text-gray-400">{t('backtest.maxDrawdown')}</div>
         <Input
           value={ddLimitText}
           onFocus={() => (ddEditing.current = true)}
@@ -259,7 +261,7 @@ export default function BacktestConfigPanel({
             if (e.key === 'Enter') (e.target as HTMLInputElement)?.blur();
           }}
           className="h-8 w-20 rounded-lg bg-white/5 border-white/10 text-gray-100 text-xs"
-          title="达到该回撤(峰值到当前)时触发硬止损/停止交易；同时会自动设置更低的回撤暂停阈值"
+          title={t('backtest.maxDrawdownTitle')}
         />
 
         {/* Confirm button: apply DD limit without needing to blur the input */}
@@ -267,9 +269,9 @@ export default function BacktestConfigPanel({
           type="button"
           onClick={commitDdLimit}
           className="h-8 px-2 rounded-lg text-xs border border-white/10 bg-white/5 hover:bg-white/10 text-gray-100"
-          title="确认回撤上限"
+          title={t('common.confirm')}
         >
-          确认
+          {t('common.confirm')}
         </button>
         <label className="ml-2 flex items-center gap-2 text-xs text-gray-300 select-none">
           <input
@@ -277,7 +279,7 @@ export default function BacktestConfigPanel({
             checked={allowPyramiding}
             onChange={(e) => setConfig((prev) => ({ ...prev, allowPyramiding: e.target.checked }))}
           />
-          允许加仓
+          {t('backtest.allowPyramiding')}
         </label>
 
         <button
@@ -288,13 +290,13 @@ export default function BacktestConfigPanel({
             'ml-1 h-8 px-2 rounded-lg text-xs border border-white/10 bg-white/5 hover:bg-white/10 text-gray-100',
             (!onAutoPyramiding || pyramidingOptimizing || allInMode) && 'opacity-50 cursor-not-allowed'
           )}
-          title={allInMode ? "全仓复利模式下：每次加仓/最多加仓次数无意义（已禁用）" : "自动搜索：每次加仓(手) + 最多加仓次数（以收益因子/回撤综合评分）"}
+          title={allInMode ? t('backtest.allInPyramidingDisabled') : t('backtest.autoPyramidingHint')}
         >
-          {pyramidingOptimizing ? '计算中…' : '自动设置加仓'}
+          {pyramidingOptimizing ? t('backtest.optimizing') : t('backtest.autoPyramiding')}
         </button>
 
         <div className={cn('ml-2 text-xs text-gray-400', (!allowPyramiding || allInMode) && 'opacity-50')}>
-          每次加仓(手)
+          {t('backtest.orderLots')}
         </div>
         <Input
           value={orderLotsText}
@@ -320,12 +322,12 @@ export default function BacktestConfigPanel({
             'h-8 px-2 rounded-lg text-xs border border-white/10 bg-white/5 hover:bg-white/10 text-gray-100',
             (!allowPyramiding || allInMode) && 'opacity-50 cursor-not-allowed'
           )}
-          title={allInMode ? '全仓复利模式下禁用加仓手数' : '确认每次加仓(手)'}
+          title={allInMode ? t('backtest.orderLotsDisabled') : t('backtest.orderLotsConfirm')}
         >
-          确认
+          {t('common.confirm')}
         </button>
 
-        <div className={cn('ml-2 text-xs text-gray-400', !allowPyramiding && 'opacity-50')}>最多加仓次数</div>
+        <div className={cn('ml-2 text-xs text-gray-400', !allowPyramiding && 'opacity-50')}>{t('backtest.maxEntries')}</div>
         <Input
           value={maxEntriesText}
           disabled={!allowPyramiding}
@@ -350,9 +352,9 @@ export default function BacktestConfigPanel({
             'h-8 px-2 rounded-lg text-xs border border-white/10 bg-white/5 hover:bg-white/10 text-gray-100',
             !allowPyramiding && 'opacity-50 cursor-not-allowed'
           )}
-          title="确认最多加仓次数"
+          title={t('backtest.maxEntriesConfirm')}
         >
-          确认
+          {t('common.confirm')}
         </button>
 
         <label className={cn('ml-2 flex items-center gap-2 text-xs text-gray-300 select-none', !allowPyramiding && 'opacity-50')}>
@@ -362,33 +364,35 @@ export default function BacktestConfigPanel({
             disabled={!allowPyramiding}
             onChange={(e) => setConfig((prev) => ({ ...prev, allowSameDirectionRepeat: e.target.checked }))}
           />
-          同向重复信号
+          {t('backtest.allowSameDirectionRepeat')}
         </label>
 
-        <div className="ml-auto text-xs text-gray-500">信号在收盘生成，下一根开盘成交</div>
+        <div className="ml-auto text-xs text-gray-500">{t('backtest.executionHint')}</div>
       </div>
 
       <div className="text-[11px] text-gray-500 -mt-1">
-        bps=万分之一；成交价=开盘价±滑点；现金流计入手续费；“同向重复信号”仅在“允许加仓”时生效；一手={lotSize}股
+        {t('backtest.footnote', { lotSize })}
       </div>
 
       {pyramidingCandidates && pyramidingCandidates.length > 0 && (
         <div className="mt-2 rounded-lg border border-white/10 bg-white/5 p-2">
           <div className="flex items-center justify-between">
-            <div className="text-xs text-gray-200">自动推荐加仓组合（Top {Math.min(8, pyramidingCandidates.length)}）</div>
-            <div className="text-[11px] text-gray-500">点击某一行可直接应用</div>
+            <div className="text-xs text-gray-200">
+              {t('backtest.autoPyramidingTop', { count: Math.min(8, pyramidingCandidates.length) })}
+            </div>
+            <div className="text-[11px] text-gray-500">{t('backtest.autoPyramidingApply')}</div>
           </div>
 
           <div className="mt-2 overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-gray-400">
-                  <th className="text-left font-normal py-1">每次加仓(手)</th>
-                  <th className="text-left font-normal py-1">最多加仓次数</th>
+                  <th className="text-left font-normal py-1">{t('backtest.orderLots')}</th>
+                  <th className="text-left font-normal py-1">{t('backtest.maxEntries')}</th>
                   <th className="text-left font-normal py-1">PF</th>
-                  <th className="text-left font-normal py-1">净收益%</th>
-                  <th className="text-left font-normal py-1">最大回撤%</th>
-                  <th className="text-left font-normal py-1">交易</th>
+                  <th className="text-left font-normal py-1">{t('backtest.netProfitPct')}</th>
+                  <th className="text-left font-normal py-1">{t('backtest.maxDrawdownPct')}</th>
+                  <th className="text-left font-normal py-1">{t('backtest.tradeCount')}</th>
                 </tr>
               </thead>
               <tbody>

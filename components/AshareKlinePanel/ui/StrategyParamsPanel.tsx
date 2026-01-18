@@ -1,8 +1,9 @@
-'use client';
+"use client";
 
-import React from 'react';
-import type { StrategyKey, StrategyParams } from '../types';
-import { Input } from '@/components/ui/input';
+import React from "react";
+import { Input } from "@/components/ui/input";
+import { useI18n } from "@/lib/i18n";
+import type { StrategyKey, StrategyParams } from "../types";
 
 type Props = {
   strategy: StrategyKey;
@@ -16,22 +17,22 @@ function clampNum(v: number, min: number, max: number) {
 }
 
 export default function StrategyParamsPanel({ strategy, stParams, setStParams }: Props) {
-  if (strategy === 'none') return null;
+  const { t } = useI18n();
+  if (strategy === "none") return null;
 
   const f = stParams.filters;
 
   return (
     <div className="mt-3 space-y-3">
-      {/* Strategy-specific params */}
-      {(strategy === 'supertrend' || strategy === 'atrBreakout' || strategy === 'turtle') && (
+      {(strategy === "supertrend" || strategy === "atrBreakout" || strategy === "turtle") && (
         <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-          <div className="text-xs text-white font-medium">策略参数</div>
+          <div className="text-xs text-white font-medium">{t("ashare.params.strategyParams")}</div>
 
           <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px] text-gray-300">
-            {strategy === 'supertrend' && (
+            {strategy === "supertrend" && (
               <>
                 <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1">
-                  <div>ATR 周期</div>
+                  <div>{t("ashare.params.atrLen")}</div>
                   <Input
                     value={String(stParams.supertrend.atrLen)}
                     onChange={(e) =>
@@ -44,7 +45,7 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1">
-                  <div>倍数</div>
+                  <div>{t("ashare.params.mult")}</div>
                   <Input
                     value={String(stParams.supertrend.mult)}
                     onChange={(e) =>
@@ -59,10 +60,10 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
               </>
             )}
 
-            {strategy === 'atrBreakout' && (
+            {strategy === "atrBreakout" && (
               <>
                 <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1">
-                  <div>通道长度</div>
+                  <div>{t("ashare.params.channelLen")}</div>
                   <Input
                     value={String(stParams.atrBreakout.donLen)}
                     onChange={(e) =>
@@ -75,7 +76,7 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1">
-                  <div>ATR 周期</div>
+                  <div>{t("ashare.params.atrLen")}</div>
                   <Input
                     value={String(stParams.atrBreakout.atrLen)}
                     onChange={(e) =>
@@ -88,7 +89,7 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1">
-                  <div>ATR 缓冲倍数</div>
+                  <div>{t("ashare.params.atrBuffer")}</div>
                   <Input
                     value={String(stParams.atrBreakout.atrMult)}
                     onChange={(e) =>
@@ -103,10 +104,10 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
               </>
             )}
 
-            {strategy === 'turtle' && (
+            {strategy === "turtle" && (
               <>
                 <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1">
-                  <div>入场长度</div>
+                  <div>{t("ashare.params.entryLen")}</div>
                   <Input
                     value={String(stParams.turtle.entryLen)}
                     onChange={(e) =>
@@ -119,7 +120,7 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1">
-                  <div>退出长度</div>
+                  <div>{t("ashare.params.exitLen")}</div>
                   <Input
                     value={String(stParams.turtle.exitLen)}
                     onChange={(e) =>
@@ -137,23 +138,28 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
         </div>
       )}
 
-      {/* Editable filters */}
       <div className="rounded-xl border border-white/10 bg-white/5 p-3">
         <div className="flex items-center justify-between">
-          <div className="text-xs text-white font-medium">过滤器（可编辑）</div>
-          <label className="flex items-center gap-2 text-[11px] text-gray-300 select-none" title="开启后会减少震荡市假信号，但可能降低交易次数。">
+          <div className="text-xs text-white font-medium">{t("ashare.panel.filters")}</div>
+          <label
+            className="flex items-center gap-2 text-[11px] text-gray-300 select-none"
+            title={t("ashare.params.tip.enable")}
+          >
             <input
               type="checkbox"
               checked={Boolean(f.enable)}
               onChange={(e) => setStParams({ ...stParams, filters: { ...f, enable: e.target.checked } })}
             />
-            启用
+            {t("ashare.params.enable")}
           </label>
         </div>
 
         <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px] text-gray-300">
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1" title="趋势 EMA 长度（用于站上/斜率过滤）">
-            <div>趋势EMA</div>
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1"
+            title={t("ashare.params.tip.trendEma")}
+          >
+            <div>{t("ashare.params.trendEma")}</div>
             <Input
               value={String(f.trendEmaLen)}
               onChange={(e) =>
@@ -166,8 +172,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </div>
 
-          <label className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1 select-none" title="要求价格站上趋势EMA才允许开仓（趋势确认）">
-            <span>站上EMA</span>
+          <label
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1 select-none"
+            title={t("ashare.params.tip.requireAboveEma")}
+          >
+            <span>{t("ashare.params.requireAboveEma")}</span>
             <input
               type="checkbox"
               checked={Boolean(f.requireAboveEma)}
@@ -175,8 +184,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </label>
 
-          <label className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1 select-none" title="要求EMA最近几根K线向上（避免震荡反复）">
-            <span>EMA斜率↑</span>
+          <label
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1 select-none"
+            title={t("ashare.params.tip.emaSlopeUp")}
+          >
+            <span>{t("ashare.params.emaSlopeUp")}</span>
             <input
               type="checkbox"
               checked={Boolean(f.requireEmaSlopeUp)}
@@ -184,8 +196,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </label>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1" title="EMA斜率回看根数（例如5表示与5根前比较）">
-            <div>斜率回看</div>
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1"
+            title={t("ashare.params.tip.emaSlopeLookback")}
+          >
+            <div>{t("ashare.params.emaSlopeLookback")}</div>
             <Input
               value={String(f.emaSlopeLookback)}
               onChange={(e) =>
@@ -198,8 +213,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1" title="成交量均线周期">
-            <div>均量周期</div>
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1"
+            title={t("ashare.params.tip.volLookback")}
+          >
+            <div>{t("ashare.params.volLookback")}</div>
             <Input
               value={String(f.volLookback)}
               onChange={(e) =>
@@ -212,8 +230,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1" title="成交量爆发倍数（1.1=大于均量10%才允许开仓；0表示关闭）">
-            <div>量能倍数</div>
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1"
+            title={t("ashare.params.tip.volMult")}
+          >
+            <div>{t("ashare.params.volMult")}</div>
             <Input
               value={String(f.volMult)}
               onChange={(e) =>
@@ -226,8 +247,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1" title="软性缩量底线：低于均量的该百分比则拒绝开仓（0=关闭）。建议 0~10">
-            <div>最小量(%)</div>
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1"
+            title={t("ashare.params.tip.volFloorPct")}
+          >
+            <div>{t("ashare.params.volFloorPct")}</div>
             <Input
               value={String(f.volFloorPct ?? 5)}
               onChange={(e) =>
@@ -240,8 +264,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1" title="两次BUY之间至少间隔多少根K线（0=关闭）">
-            <div>买入冷却</div>
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1"
+            title={t("ashare.params.tip.minBarsBetweenBuys")}
+          >
+            <div>{t("ashare.params.minBarsBetweenBuys")}</div>
             <Input
               value={String(f.minBarsBetweenBuys)}
               onChange={(e) =>
@@ -254,8 +281,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1" title="ADX计算周期">
-            <div>ADX周期</div>
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1"
+            title={t("ashare.params.tip.adxLen")}
+          >
+            <div>{t("ashare.params.adxLen")}</div>
             <Input
               value={String(f.adxLen ?? 14)}
               onChange={(e) =>
@@ -268,8 +298,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1" title="最小ADX阈值（0=关闭）。典型：15~25">
-            <div>ADX阈值</div>
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1"
+            title={t("ashare.params.tip.minAdx")}
+          >
+            <div>{t("ashare.params.minAdx")}</div>
             <Input
               value={String(f.minAdx ?? 0)}
               onChange={(e) =>
@@ -282,8 +315,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1" title="ATR过滤周期">
-            <div>ATR周期</div>
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1"
+            title={t("ashare.params.tip.atrLen")}
+          >
+            <div>{t("ashare.params.atrFilterLen")}</div>
             <Input
               value={String(f.atrLen)}
               onChange={(e) =>
@@ -296,8 +332,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1" title="最小ATR%(ATR/Close*100)。过滤低波动噪声（0=关闭）">
-            <div>最小ATR%</div>
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1"
+            title={t("ashare.params.tip.minAtrPct")}
+          >
+            <div>{t("ashare.params.minAtrPct")}</div>
             <Input
               value={String(f.minAtrPct)}
               onChange={(e) =>
@@ -310,8 +349,11 @@ export default function StrategyParamsPanel({ strategy, stParams, setStParams }:
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1" title="最大ATR%(ATR/Close*100)。过滤极端风险（0=关闭）">
-            <div>最大ATR%</div>
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1"
+            title={t("ashare.params.tip.maxAtrPct")}
+          >
+            <div>{t("ashare.params.maxAtrPct")}</div>
             <Input
               value={String(f.maxAtrPct)}
               onChange={(e) =>

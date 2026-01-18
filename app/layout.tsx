@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Analytics } from "@vercel/analytics/next";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 import Providers from "./providers";
+import { DEFAULT_LANG, type Lang } from "@/lib/i18n/messages";
 
 export const metadata: Metadata = {
   title: "OpenStock",
@@ -15,10 +17,14 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = cookies();
+  const stored = cookieStore.get("openstock_locale")?.value;
+  const initialLang: Lang = stored === "zh" || stored === "en" ? stored : DEFAULT_LANG;
+
   return (
-    <html lang="en" className="dark">
+    <html lang={initialLang} className="dark">
       <body className="antialiased">
-        <Providers>{children}</Providers>
+        <Providers initialLang={initialLang}>{children}</Providers>
         <Toaster />
         <Analytics />
       </body>

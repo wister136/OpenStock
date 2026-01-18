@@ -4,7 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
 import { safeLocalStorageGet, safeLocalStorageSet } from "@/components/AshareKlinePanel/hooks/useLocalStorageState";
 import { DEFAULT_RESONANCE_CONFIG } from "@/lib/ta/scoring";
-import type { RecommendationResponse, ResonanceConfig } from "@/types/resonance";
+import { useI18n } from "@/lib/i18n";
+import type { Action, RecommendationResponse, ResonanceConfig } from "@/types/resonance";
 
 const CONFIG_KEY = "resonance_config_v1";
 
@@ -19,6 +20,7 @@ function parseNumberInput(value: string, fallback: number): number {
 }
 
 export default function ResonanceRecommendationCard({ symbol }: { symbol: string }) {
+  const { t } = useI18n();
   const [config, setConfig] = useState<ResonanceConfig>(() => {
     const stored = safeLocalStorageGet(CONFIG_KEY);
     if (stored && typeof stored === "object") {
@@ -71,20 +73,25 @@ export default function ResonanceRecommendationCard({ symbol }: { symbol: string
 
   const recommendation = data?.recommendation;
   const candidates = data?.candidates ?? [];
+  const actionLabel = (action?: Action) => {
+    if (action === "BUY") return t("action.buy");
+    if (action === "SELL") return t("action.sell");
+    return t("action.hold");
+  };
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/30 p-5 space-y-4">
       <div className="flex flex-col gap-2">
-        <div className="text-sm text-gray-400">Resonance Recommendation</div>
+        <div className="text-sm text-gray-400">{t("resonance.title")}</div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="text-2xl font-semibold text-white">
-            {recommendation?.action ?? "HOLD"}
+            {actionLabel(recommendation?.action)}
           </div>
           <div className="text-sm text-gray-400">
             {recommendation?.timeframe ?? "--"} / {recommendation?.strategy ?? "--"}
           </div>
           <div className="text-sm text-emerald-400">
-            Score {recommendation?.score ?? 0}
+            {t("resonance.score")} {recommendation?.score ?? 0}
           </div>
         </div>
       </div>
@@ -97,15 +104,15 @@ export default function ResonanceRecommendationCard({ symbol }: { symbol: string
           />
         </div>
         <div className="mt-2 text-xs text-gray-400">
-          {recommendation?.reasons?.length ? recommendation.reasons.join(" · ") : "No reasons"}
+          {recommendation?.reasons?.length ? recommendation.reasons.join(" · ") : t("resonance.noReasons")}
         </div>
       </div>
 
-      {loading && <div className="text-xs text-gray-500">Loading resonance...</div>}
-      {error && <div className="text-xs text-red-400">Error: {error}</div>}
+      {loading && <div className="text-xs text-gray-500">{t("resonance.loading")}</div>}
+      {error && <div className="text-xs text-red-400">{t("resonance.error")}: {error}</div>}
 
       <details className="rounded-xl border border-white/10 bg-black/20 p-3">
-        <summary className="cursor-pointer text-sm text-gray-300">Candidates</summary>
+        <summary className="cursor-pointer text-sm text-gray-300">{t("resonance.candidates")}</summary>
         <div className="mt-3 space-y-2 text-sm text-gray-300">
           {candidates.map((c) => (
             <div
@@ -115,13 +122,13 @@ export default function ResonanceRecommendationCard({ symbol }: { symbol: string
               <div className="flex flex-wrap items-center gap-2">
                 <div className="text-white">{c.timeframe}</div>
                 <div className="text-gray-400">{c.strategy}</div>
-                <div className="text-emerald-400">Score {c.score}</div>
+                <div className="text-emerald-400">{t("resonance.score")} {c.score}</div>
                 <div className="text-xs text-gray-500">
-                  {c.rawAction} → {c.gatedAction}
+                  {actionLabel(c.rawAction)} → {actionLabel(c.gatedAction)}
                 </div>
               </div>
               <div className="text-xs text-gray-400">
-                {c.reasons?.length ? c.reasons.join(" · ") : "No reasons"}
+                {c.reasons?.length ? c.reasons.join(" · ") : t("resonance.noReasons")}
               </div>
             </div>
           ))}
@@ -129,10 +136,10 @@ export default function ResonanceRecommendationCard({ symbol }: { symbol: string
       </details>
 
       <details className="rounded-xl border border-white/10 bg-black/20 p-3">
-        <summary className="cursor-pointer text-sm text-gray-300">Parameters</summary>
+        <summary className="cursor-pointer text-sm text-gray-300">{t("resonance.parameters")}</summary>
         <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-gray-300">
           <label className="space-y-1">
-            <div className="text-xs text-gray-500">ADX threshold</div>
+            <div className="text-xs text-gray-500">{t("resonance.config.adxThreshold")}</div>
             <input
               className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm"
               type="number"
@@ -147,7 +154,7 @@ export default function ResonanceRecommendationCard({ symbol }: { symbol: string
           </label>
 
           <label className="space-y-1">
-            <div className="text-xs text-gray-500">EMA period</div>
+            <div className="text-xs text-gray-500">{t("resonance.config.emaPeriod")}</div>
             <input
               className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm"
               type="number"
@@ -162,7 +169,7 @@ export default function ResonanceRecommendationCard({ symbol }: { symbol: string
           </label>
 
           <label className="space-y-1">
-            <div className="text-xs text-gray-500">RSI period</div>
+            <div className="text-xs text-gray-500">{t("resonance.config.rsiPeriod")}</div>
             <input
               className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm"
               type="number"
@@ -177,7 +184,7 @@ export default function ResonanceRecommendationCard({ symbol }: { symbol: string
           </label>
 
           <label className="space-y-1">
-            <div className="text-xs text-gray-500">RSI buy</div>
+            <div className="text-xs text-gray-500">{t("resonance.config.rsiBuy")}</div>
             <input
               className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm"
               type="number"
@@ -192,7 +199,7 @@ export default function ResonanceRecommendationCard({ symbol }: { symbol: string
           </label>
 
           <label className="space-y-1">
-            <div className="text-xs text-gray-500">RSI sell</div>
+            <div className="text-xs text-gray-500">{t("resonance.config.rsiSell")}</div>
             <input
               className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm"
               type="number"
@@ -207,7 +214,7 @@ export default function ResonanceRecommendationCard({ symbol }: { symbol: string
           </label>
 
           <label className="space-y-1">
-            <div className="text-xs text-gray-500">Min bars</div>
+            <div className="text-xs text-gray-500">{t("resonance.config.minBars")}</div>
             <input
               className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm"
               type="number"

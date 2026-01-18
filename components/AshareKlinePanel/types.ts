@@ -291,7 +291,7 @@ export type BacktestResult = {
   barCount: number; // total bars in sample
   validBarCount: number; // bars with valid OHLC time
   tradeCount: number; // number of trades (including forced close)
-  reliabilityLevel: '高' | '中' | '低';
+  reliabilityLevel: string;
   reliabilityNotes: string[];
   buyHoldFinalEquity: number | null;
   buyHoldCagrPct: number | null;
