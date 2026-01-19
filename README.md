@@ -332,6 +332,8 @@ public/assets/images/   # logos and screenshots
 
 ## 📡 Data & Integrations
 
+- 实时新闻接入指南见：`docs/README-news.md`
+
 - Finnhub
     - Stock search, company profiles, and market news.
     - Set `NEXT_PUBLIC_FINNHUB_API_KEY` and `FINNHUB_BASE_URL` (default: https://finnhub.io/api/v1).
