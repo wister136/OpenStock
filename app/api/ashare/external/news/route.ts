@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 
 import { connectToDatabase } from '@/database/mongoose';
 import NewsItem from '@/database/models/NewsItem';
+import NewsCursor from '@/database/models/NewsCursor';
 import NewsSentimentSnapshot from '@/database/models/NewsSentimentSnapshot';
 import { computeRollingSentiment } from '@/lib/ashare/news_aggregation';
-import { buildNewsFingerprint } from '@/lib/ashare/news_fingerprint';
 import { normalizeSymbol } from '@/lib/ashare/symbol';
+import { sha1 } from '@/lib/hash';
 
 export async function POST(req: Request) {
   const apiKey = req.headers.get('x-api-key');
@@ -15,28 +16,30 @@ export async function POST(req: Request) {
 
   const body = await req.json();
   const symbol = normalizeSymbol(body?.symbol ?? 'GLOBAL') || 'GLOBAL';
-  const publishedAt = Number(body?.publishedAt ?? body?.ts);
+  const publishedAt = Number(body?.ts ?? body?.publishedAt);
   const title = typeof body?.title === 'string' ? body.title.trim() : '';
   const content =
     typeof body?.content === 'string'
       ? body.content.trim()
+      : typeof body?.contentSnippet === 'string'
+        ? body.contentSnippet.trim()
       : typeof body?.summary === 'string'
         ? body.summary.trim()
         : undefined;
   const url = typeof body?.url === 'string' ? body.url.trim() : undefined;
   const source = typeof body?.source === 'string' ? body.source.trim() : '';
-  const sentimentScore = body?.sentimentScore == null ? undefined : Number(body.sentimentScore);
+  const sentimentScore = body?.score == null ? (body?.sentimentScore == null ? undefined : Number(body.sentimentScore)) : Number(body.score);
   const confidence = body?.confidence == null ? undefined : Number(body.confidence);
   const isMock = body?.isMock === true;
 
   if (!Number.isFinite(publishedAt)) {
     return NextResponse.json({ ok: false, error: 'Invalid publishedAt' }, { status: 400 });
   }
-  if (!title || !source) {
-    return NextResponse.json({ ok: false, error: 'Missing title/source' }, { status: 400 });
+  if (!title || !source || !content) {
+    return NextResponse.json({ ok: false, error: 'Missing title/source/content' }, { status: 400 });
   }
 
-  const fingerprint = buildNewsFingerprint({ url, title, publishedAt, source });
+  const fingerprint = sha1(`${source}|${symbol}|${title}|${publishedAt}`);
   const serverTime = Date.now();
 
   try {
@@ -60,6 +63,12 @@ export async function POST(req: Request) {
       { upsert: true }
     );
     const inserted = result.upsertedCount > 0;
+
+    await NewsCursor.updateOne(
+      { source, symbol },
+      { $max: { lastTs: publishedAt }, $setOnInsert: { source, symbol } },
+      { upsert: true }
+    );
 
     if (inserted) {
       const windowHours = Number(process.env.NEWS_DECAY_WINDOW_HOURS ?? 2);
@@ -97,12 +106,10 @@ export async function POST(req: Request) {
         );
       }
     }
-    return NextResponse.json({
-      ok: true,
-      status: inserted ? 'inserted' : 'skipped_duplicate',
-      symbol,
-      serverTime,
-    });
+    if (!inserted) {
+      return NextResponse.json({ ok: true, status: 'skipped', reason: 'duplicate', symbol, serverTime });
+    }
+    return NextResponse.json({ ok: true, status: 'inserted', symbol, serverTime });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }

@@ -82,11 +82,20 @@ export function detectRegime(inputs: RegimeInputs): {
   let scorePanicNews = 0;
   let wNews = config.weights.w_news;
   const mockRatio = news?.mockRatio;
+  const windowMinutes = Number(process.env.NEWS_ROLLING_WINDOW_MINUTES ?? 120);
+  const effectiveWindowMinutes = Number.isFinite(windowMinutes) ? windowMinutes : 120;
+  if (mockRatio != null && mockRatio > 0) {
+    reasons.push('News source includes MOCK (dev mode)');
+  }
   if (mockRatio != null && mockRatio >= 0.8) {
     wNews = wNews * 0.1;
     reasons.push('News is MOCK -> weight reduced (dev mode)');
   }
   if (news) {
+    if (news.sourceType === 'items_rolling') {
+      const n = news.explain?.n ?? 0;
+      reasons.push(`News rolling sentiment = ${news.score.toFixed(2)} (N=${n}, window=${effectiveWindowMinutes}m)`);
+    }
     if (news.score < -config.thresholds.newsPanicThreshold) {
       scorePanicNews = clamp01(Math.abs(news.score) * news.confidence);
       reasons.push('News sentiment indicates panic risk');

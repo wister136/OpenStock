@@ -255,6 +255,16 @@ INNGEST_SIGNING_KEY=your_inngest_signing_key
 # Email (Nodemailer via Gmail; consider App Passwords if 2FA)
 NODEMAILER_EMAIL=youraddress@gmail.com
 NODEMAILER_PASSWORD=your_gmail_app_password
+
+# News pipeline (dev)
+NEWS_INGEST_API_KEY=demo_key
+NEWS_PUMP_ENABLED=true
+NEXT_PUBLIC_NEWS_POLL_INTERVAL_MS=10000
+NEWS_ROLLING_WINDOW_MINUTES=120
+NEWS_DECAY_LAMBDA=0.02
+NEWS_TTL_MS=7200000
+NEXTJS_API_URL=http://localhost:3000/api/ashare/external/news
+CHECK_INTERVAL=60
 ```
 
 Local (Docker Compose) MongoDB:
@@ -283,6 +293,16 @@ INNGEST_SIGNING_KEY=your_inngest_signing_key
 # Email (Nodemailer via Gmail; consider App Passwords if 2FA)
 NODEMAILER_EMAIL=youraddress@gmail.com
 NODEMAILER_PASSWORD=your_gmail_app_password
+
+# News pipeline (dev)
+NEWS_INGEST_API_KEY=demo_key
+NEWS_PUMP_ENABLED=true
+NEXT_PUBLIC_NEWS_POLL_INTERVAL_MS=10000
+NEWS_ROLLING_WINDOW_MINUTES=120
+NEWS_DECAY_LAMBDA=0.02
+NEWS_TTL_MS=7200000
+NEXTJS_API_URL=http://localhost:3000/api/ashare/external/news
+CHECK_INTERVAL=60
 ```
 
 Notes
@@ -333,6 +353,10 @@ public/assets/images/   # logos and screenshots
 ## 📡 Data & Integrations
 
 - 实时新闻接入指南见：`docs/README-news.md`
+- News pump (dev)
+    - Install: `pip install -r scripts/requirements.txt`
+    - Run: `python scripts/news_pump.py`
+    - Smoke test (PowerShell): `powershell -ExecutionPolicy Bypass -File scripts/smoke_news.ps1`
 
 - Finnhub
     - Stock search, company profiles, and market news.

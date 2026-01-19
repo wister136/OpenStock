@@ -33,10 +33,12 @@ export default function ExternalNewsTicker({ symbol }: { symbol: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    const pollMsRaw = Number(process.env.NEXT_PUBLIC_NEWS_POLL_INTERVAL_MS ?? 10000);
+    const pollMs = Number.isFinite(pollMsRaw) && pollMsRaw > 0 ? pollMsRaw : 10000;
 
     async function load() {
       try {
-        const res = await fetch(`/api/ashare/news?symbol=${encodeURIComponent(symbol)}&limit=30`, { cache: 'no-store' });
+        const res = await fetch(`/api/ashare/news/feed?symbol=${encodeURIComponent(symbol)}&limit=20`, { cache: 'no-store' });
         if (!res.ok) throw new Error(String(res.status));
         const json = (await res.json()) as ApiResponse;
         if (!json?.ok || cancelled) return;
@@ -55,7 +57,7 @@ export default function ExternalNewsTicker({ symbol }: { symbol: string }) {
     }
 
     load();
-    const id = setInterval(load, 10_000);
+    const id = setInterval(load, pollMs);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -81,15 +83,19 @@ export default function ExternalNewsTicker({ symbol }: { symbol: string }) {
   };
 
   const sorted = useMemo(() => [...items].sort((a, b) => b.publishedAt - a.publishedAt), [items]);
+  const latestTs = sorted[0]?.publishedAt ?? 0;
+  const isDelayed = latestTs > 0 && serverTime - latestTs > 30 * 60 * 1000;
+  const pollSec = Math.round((Number(process.env.NEXT_PUBLIC_NEWS_POLL_INTERVAL_MS ?? 10000) || 10000) / 1000);
 
   return (
     <div className="rounded-xl bg-white/5 border border-white/5 p-4">
       <div className="flex items-center justify-between">
         <div className="text-xs text-gray-400">{t('ashare.news.title')}</div>
-        <div className="text-[10px] text-gray-500">{t('ashare.news.refreshEvery', { sec: 10 })}</div>
+        <div className="text-[10px] text-gray-500">{t('ashare.news.refreshEvery', { sec: pollSec })}</div>
       </div>
 
       {error && <div className="mt-3 text-xs text-yellow-400">News feed unavailable</div>}
+      {!error && isDelayed && <div className="mt-2 text-[10px] text-orange-300">数据延迟（最新新闻超过 30 分钟）</div>}
 
       {!error && (
         <div className="mt-3 max-h-56 overflow-auto space-y-3 pr-1">

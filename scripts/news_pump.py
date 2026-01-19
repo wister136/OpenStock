@@ -20,9 +20,10 @@ except Exception as exc:  # pragma: no cover
 ENDPOINT = os.getenv("NEXTJS_API_URL", os.getenv("NEWS_INGEST_ENDPOINT", "http://localhost:3000/api/ashare/external/news"))
 API_KEY = os.getenv("NEWS_INGEST_API_KEY", "")
 CHECK_INTERVAL = os.getenv("CHECK_INTERVAL")
+SYMBOL = os.getenv("SYMBOL", "GLOBAL")
 POLL_MIN_SEC = 30
 POLL_MAX_SEC = 60
-BACKOFF_SEC = 120
+BACKOFF_STEPS = [30, 60, 120, 300]
 ONESHOT = os.getenv("NEWS_PUMP_ONESHOT") == "1"
 
 
@@ -134,7 +135,7 @@ def build_payload(row: Dict[str, Any], last_ts: int) -> Optional[Dict[str, Any]]
     sentiment = compute_sentiment(f"{title} {content or ''}")
 
     return {
-        "symbol": "GLOBAL",
+        "symbol": SYMBOL,
         "title": title,
         "content": content,
         "url": url,
@@ -245,43 +246,70 @@ def generate_mock_news(n: int) -> List[Dict[str, Any]]:
     return items
 
 
-def main() -> None:
-    if not API_KEY:
-        print("Missing NEWS_INGEST_API_KEY, set it before running.")
-    print(f"News pump -> {ENDPOINT}")
-
-    while True:
+def main() -> bool:
+    try:
+        provider, df = fetch_news_df()
+        rows = df.to_dict(orient="records") if hasattr(df, "to_dict") else []
+        last_ts = get_cursor(provider, SYMBOL)
+        sent = 0
+        max_published = last_ts
+        for row in rows:
+            payload = build_payload(row, last_ts)
+            if not payload:
+                continue
+            if not API_KEY:
+                print("Skip post: missing NEWS_INGEST_API_KEY.")
+                break
+            res = post_news(payload)
+            if res.get("ok"):
+                sent += 1
+                if payload["publishedAt"] > max_published:
+                    max_published = payload["publishedAt"]
+        print(f"Sent {sent} news items.")
+        if max_published > last_ts:
+            update_cursor(provider, SYMBOL, max_published)
+        return sent > 0
+    except Exception as exc:
+        print(f"AKShare error: {exc}")
         try:
-            provider, df = fetch_news_df()
-            rows = df.to_dict(orient="records") if hasattr(df, "to_dict") else []
-            last_ts = get_cursor(provider, "GLOBAL")
+            provider = "rss"
+            rows = fetch_rss_entries()
+            last_ts = get_cursor(provider, SYMBOL)
             sent = 0
             max_published = last_ts
             for row in rows:
-                payload = build_payload(row, last_ts)
-                if not payload:
+                published_at = int(row.get("publishedAt") or 0)
+                if published_at <= last_ts:
                     continue
-                if not API_KEY:
-                    print("Skip post: missing NEWS_INGEST_API_KEY.")
-                    break
+                payload = {
+                    "symbol": SYMBOL,
+                    "title": row.get("title") or "",
+                    "content": row.get("content"),
+                    "url": row.get("url"),
+                    "source": row.get("source") or "rss",
+                    "publishedAt": published_at,
+                    "sentimentScore": compute_sentiment(f"{row.get('title','')} {row.get('content','')}"),
+                    "confidence": 0.4,
+                }
+                if not payload["title"]:
+                    continue
                 res = post_news(payload)
                 if res.get("ok"):
                     sent += 1
-                    if payload["publishedAt"] > max_published:
-                        max_published = payload["publishedAt"]
-            print(f"Sent {sent} news items.")
+                    if published_at > max_published:
+                        max_published = published_at
+            print(f"RSS sent {sent} news items.")
+            if sent == 0:
+                raise RuntimeError("RSS returned no items")
             if max_published > last_ts:
-                update_cursor(provider, "GLOBAL", max_published)
-            if ONESHOT:
-                print("Oneshot mode: exit after single run.")
-                return
-            time.sleep(next_interval())
-        except Exception as exc:
-            print(f"AKShare error: {exc}")
+                update_cursor(provider, SYMBOL, max_published)
+            return sent > 0
+        except Exception as exc2:
+            print(f"RSS error: {exc2}")
             try:
-                provider = "rss"
-                rows = fetch_rss_entries()
-                last_ts = get_cursor(provider, "GLOBAL")
+                provider = "MOCK"
+                rows = generate_mock_news(3)
+                last_ts = get_cursor(provider, SYMBOL)
                 sent = 0
                 max_published = last_ts
                 for row in rows:
@@ -289,14 +317,15 @@ def main() -> None:
                     if published_at <= last_ts:
                         continue
                     payload = {
-                        "symbol": "GLOBAL",
+                        "symbol": SYMBOL,
                         "title": row.get("title") or "",
                         "content": row.get("content"),
                         "url": row.get("url"),
-                        "source": row.get("source") or "rss",
+                        "source": "MOCK",
                         "publishedAt": published_at,
                         "sentimentScore": compute_sentiment(f"{row.get('title','')} {row.get('content','')}"),
-                        "confidence": 0.4,
+                        "confidence": 0.3,
+                        "isMock": True,
                     }
                     if not payload["title"]:
                         continue
@@ -305,56 +334,41 @@ def main() -> None:
                         sent += 1
                         if published_at > max_published:
                             max_published = published_at
-                print(f"RSS sent {sent} news items.")
-                if sent == 0:
-                    raise RuntimeError("RSS returned no items")
+                print(f"MOCK sent {sent} news items.")
                 if max_published > last_ts:
-                    update_cursor(provider, "GLOBAL", max_published)
-                if ONESHOT:
-                    print("Oneshot mode: exit after single run.")
-                    return
-                time.sleep(next_interval())
-            except Exception as exc2:
-                print(f"RSS error: {exc2}")
-                try:
-                    provider = "MOCK"
-                    rows = generate_mock_news(3)
-                    last_ts = get_cursor(provider, "GLOBAL")
-                    sent = 0
-                    max_published = last_ts
-                    for row in rows:
-                        published_at = int(row.get("publishedAt") or 0)
-                        if published_at <= last_ts:
-                            continue
-                        payload = {
-                            "symbol": "GLOBAL",
-                            "title": row.get("title") or "",
-                            "content": row.get("content"),
-                            "url": row.get("url"),
-                            "source": "MOCK",
-                            "publishedAt": published_at,
-                            "sentimentScore": compute_sentiment(f"{row.get('title','')} {row.get('content','')}"),
-                            "confidence": 0.3,
-                            "isMock": True,
-                        }
-                        if not payload["title"]:
-                            continue
-                        res = post_news(payload)
-                        if res.get("ok"):
-                            sent += 1
-                            if published_at > max_published:
-                                max_published = published_at
-                    print(f"MOCK sent {sent} news items.")
-                    if max_published > last_ts:
-                        update_cursor(provider, "GLOBAL", max_published)
-                    if ONESHOT:
-                        print("Oneshot mode: exit after single run.")
-                        return
-                    time.sleep(next_interval())
-                except Exception as exc3:
-                    print(f"News pump error: {exc3}")
-                    time.sleep(BACKOFF_SEC)
+                    update_cursor(provider, SYMBOL, max_published)
+                return sent > 0
+            except Exception as exc3:
+                print(f"News pump error: {exc3}")
+                return False
+
+
+def success_interval() -> int:
+    if CHECK_INTERVAL:
+        try:
+            v = int(float(CHECK_INTERVAL))
+            if v > 0:
+                return v
+        except Exception:
+            pass
+    return 30
 
 
 if __name__ == "__main__":
-    main()
+    if not API_KEY:
+        print("Missing NEWS_INGEST_API_KEY, set it before running.")
+    print(f"News pump -> {ENDPOINT}")
+    fail_count = 0
+
+    while True:
+        ok = main()
+        if ok:
+            fail_count = 0
+            if ONESHOT:
+                break
+            time.sleep(success_interval())
+            continue
+
+        fail_count += 1
+        backoff = BACKOFF_STEPS[min(fail_count - 1, len(BACKOFF_STEPS) - 1)]
+        time.sleep(backoff)
