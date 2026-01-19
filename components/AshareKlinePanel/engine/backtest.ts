@@ -1,4 +1,4 @@
-// Backtest engine (pure function, next-open execution model)
+// Backtest engine (pure function, next-open execution model111)
 import type { OHLCVBar } from '@/lib/indicators';
 import { lastFinite } from '@/lib/indicators';
 import { tRuntime } from '@/lib/i18n/runtime';
