@@ -8,12 +8,15 @@ import { buildNewsFingerprint } from '@/lib/ashare/news_fingerprint';
 import { normalizeSymbol } from '@/lib/ashare/symbol';
 
 export async function POST(req: Request) {
+  console.log('[news ingest] start');
   const apiKey = req.headers.get('x-api-key');
   if (!apiKey || apiKey !== process.env.NEWS_INGEST_API_KEY) {
+    console.log('[news ingest] unauthorized');
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
   }
 
   const body = await req.json();
+  console.log('[news ingest] body parsed');
   const symbol = normalizeSymbol(body?.symbol ?? 'GLOBAL') || 'GLOBAL';
   const publishedAt = Number(body?.publishedAt ?? body?.ts);
   const title = typeof body?.title === 'string' ? body.title.trim() : '';
@@ -29,9 +32,11 @@ export async function POST(req: Request) {
   const confidence = body?.confidence == null ? undefined : Number(body.confidence);
 
   if (!Number.isFinite(publishedAt)) {
+    console.log('[news ingest] invalid publishedAt', publishedAt);
     return NextResponse.json({ ok: false, error: 'Invalid publishedAt' }, { status: 400 });
   }
   if (!title || !source) {
+    console.log('[news ingest] missing title/source');
     return NextResponse.json({ ok: false, error: 'Missing title/source' }, { status: 400 });
   }
 
@@ -39,7 +44,9 @@ export async function POST(req: Request) {
   const serverTime = Date.now();
 
   try {
+    console.log('[news ingest] connecting db');
     await connectToDatabase();
+    console.log('[news ingest] upsert start');
     const result = await NewsItem.updateOne(
       { fingerprint },
       {
@@ -57,9 +64,11 @@ export async function POST(req: Request) {
       },
       { upsert: true }
     );
+    console.log('[news ingest] upsert done', result.upsertedCount);
     const inserted = result.upsertedCount > 0;
 
     if (inserted) {
+      console.log('[news ingest] rolling aggregation start');
       const windowHours = Number(process.env.NEWS_DECAY_WINDOW_HOURS ?? 2);
       const decayK = Number(process.env.NEWS_DECAY_K ?? 0.01);
       const windowMs = (Number.isFinite(windowHours) ? windowHours : 2) * 60 * 60 * 1000;
@@ -67,6 +76,7 @@ export async function POST(req: Request) {
         .sort({ publishedAt: -1 })
         .limit(200)
         .lean();
+      console.log('[news ingest] recent fetched', recent.length);
       const rolling = computeRollingSentiment(
         recent.map((it: any) => ({
           publishedAt: it.publishedAt,
@@ -77,8 +87,10 @@ export async function POST(req: Request) {
         Number.isFinite(windowHours) ? windowHours : 2,
         Number.isFinite(decayK) ? decayK : 0.01
       );
+      console.log('[news ingest] rolling computed', Boolean(rolling));
       if (rolling) {
         const sources = Array.from(new Set(recent.map((it: any) => it.source).filter(Boolean))) as string[];
+        console.log('[news ingest] snapshot upsert start');
         await NewsSentimentSnapshot.updateOne(
           { symbol, ts: serverTime },
           {
@@ -93,6 +105,7 @@ export async function POST(req: Request) {
           },
           { upsert: true }
         );
+        console.log('[news ingest] snapshot upsert done');
       }
     }
     return NextResponse.json({

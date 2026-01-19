@@ -1,0 +1,25 @@
+
+> Openstock@0.1.0 dev
+> next dev --turbopack
+
+   ▲ Next.js 15.5.7 (Turbopack)
+   - Local:        http://localhost:3008
+   - Network:      http://192.168.0.102:3008
+   - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 3.4s
+ ○ Compiling /api/ashare/external/news ...
+ ✓ Compiled /api/ashare/external/news in 4s
+[news ingest] start
+[news ingest] body parsed
+[news ingest] connecting db
+MongoDB Connected mongodb://127.0.0.1:27017/openstock in development
+[news ingest] upsert start
+[news ingest] upsert done 1
+[news ingest] rolling aggregation start
+[news ingest] recent fetched 2
+[news ingest] rolling computed false
+ POST /api/ashare/external/news 200 in 5790ms
+ ✓ Compiled /api/ashare/news in 279ms
+ GET /api/ashare/news?symbol=SSE:603516&limit=5 200 in 666ms

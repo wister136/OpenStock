@@ -8,6 +8,8 @@
 
 ```
 NEWS_INGEST_API_KEY=your_key_here
+NEXTJS_API_URL=http://localhost:3000/api/ashare/external/news
+CHECK_INTERVAL=60
 ```
 
 ## 2. 启动 Next.js
