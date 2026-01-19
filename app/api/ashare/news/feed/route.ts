@@ -12,11 +12,12 @@ export async function GET(req: Request) {
 
   try {
     await connectToDatabase();
-    const query: Record<string, any> = { symbol };
+    const query: Record<string, any> = { symbol, isMock: { $ne: true } };
     if (source) query.source = source;
 
     const items = await NewsItem.find(query).sort({ publishedAt: -1 }).limit(limit).lean();
     return NextResponse.json({
+      ok: true,
       symbol,
       serverTime: Date.now(),
       items: items.map((it: any) => ({

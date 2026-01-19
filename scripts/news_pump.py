@@ -31,8 +31,9 @@ POS_WORDS = ["beat", "growth", "upgrade", "surge", "profit", "strong", "rally", 
 NEG_WORDS = ["crash", "panic", "default", "lawsuit", "fraud", "halt", "sanction", "loss", "down", "bear"]
 
 RSS_URLS = [
-    "https://rsshub.app/finance/cn/10jqka",
-    "https://rsshub.app/finance/cn/sina/stock",
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC&region=US&lang=en-US",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+    "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
 ]
 
 
@@ -227,25 +228,6 @@ def next_interval() -> int:
     return random.randint(POLL_MIN_SEC, POLL_MAX_SEC)
 
 
-def generate_mock_news(n: int) -> List[Dict[str, Any]]:
-    items: List[Dict[str, Any]] = []
-    now_ms = int(time.time() * 1000)
-    for i in range(max(1, min(3, n))):
-        ts = now_ms - i * 60_000
-        title = f"Mock news {i + 1} for dev pipeline"
-        content = "Mock news generated for local validation."
-        items.append(
-            {
-                "title": title,
-                "content": content,
-                "url": None,
-                "source": "MOCK",
-                "publishedAt": ts,
-            }
-        )
-    return items
-
-
 def main() -> bool:
     try:
         provider, df = fetch_news_df()
@@ -266,6 +248,8 @@ def main() -> bool:
                 if payload["publishedAt"] > max_published:
                     max_published = payload["publishedAt"]
         print(f"Sent {sent} news items.")
+        if sent == 0:
+            raise RuntimeError("AKShare returned no items")
         if max_published > last_ts:
             update_cursor(provider, SYMBOL, max_published)
         return sent > 0
@@ -306,41 +290,7 @@ def main() -> bool:
             return sent > 0
         except Exception as exc2:
             print(f"RSS error: {exc2}")
-            try:
-                provider = "MOCK"
-                rows = generate_mock_news(3)
-                last_ts = get_cursor(provider, SYMBOL)
-                sent = 0
-                max_published = last_ts
-                for row in rows:
-                    published_at = int(row.get("publishedAt") or 0)
-                    if published_at <= last_ts:
-                        continue
-                    payload = {
-                        "symbol": SYMBOL,
-                        "title": row.get("title") or "",
-                        "content": row.get("content"),
-                        "url": row.get("url"),
-                        "source": "MOCK",
-                        "publishedAt": published_at,
-                        "sentimentScore": compute_sentiment(f"{row.get('title','')} {row.get('content','')}"),
-                        "confidence": 0.3,
-                        "isMock": True,
-                    }
-                    if not payload["title"]:
-                        continue
-                    res = post_news(payload)
-                    if res.get("ok"):
-                        sent += 1
-                        if published_at > max_published:
-                            max_published = published_at
-                print(f"MOCK sent {sent} news items.")
-                if max_published > last_ts:
-                    update_cursor(provider, SYMBOL, max_published)
-                return sent > 0
-            except Exception as exc3:
-                print(f"News pump error: {exc3}")
-                return False
+            return False
 
 
 def success_interval() -> int:

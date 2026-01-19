@@ -11,7 +11,7 @@ export async function GET(req: Request) {
 
   try {
     await connectToDatabase();
-    const items = await NewsItem.find({ symbol }).sort({ publishedAt: -1 }).limit(limit).lean();
+    const items = await NewsItem.find({ symbol, isMock: { $ne: true } }).sort({ publishedAt: -1 }).limit(limit).lean();
     return NextResponse.json({
       ok: true,
       symbol,

@@ -38,9 +38,18 @@ export default function ExternalNewsTicker({ symbol }: { symbol: string }) {
 
     async function load() {
       try {
-        const res = await fetch(`/api/ashare/news/feed?symbol=${encodeURIComponent(symbol)}&limit=20`, { cache: 'no-store' });
-        if (!res.ok) throw new Error(String(res.status));
-        const json = (await res.json()) as ApiResponse;
+        const primaryRes = await fetch(`/api/ashare/news/feed?symbol=${encodeURIComponent(symbol)}&limit=20`, { cache: 'no-store' });
+        if (!primaryRes.ok) throw new Error(String(primaryRes.status));
+        let json = (await primaryRes.json()) as ApiResponse;
+        if (!json?.ok) throw new Error('Invalid response');
+
+        if (json.items.length === 0 && symbol !== 'GLOBAL') {
+          const fallbackRes = await fetch(`/api/ashare/news/feed?symbol=GLOBAL&limit=20`, { cache: 'no-store' });
+          if (fallbackRes.ok) {
+            const fallbackJson = (await fallbackRes.json()) as ApiResponse;
+            if (fallbackJson?.ok) json = fallbackJson;
+          }
+        }
         if (!json?.ok || cancelled) return;
 
         const maxTs = json.items.reduce((m, it) => Math.max(m, it.publishedAt || 0), 0);
