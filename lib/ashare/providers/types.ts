@@ -5,6 +5,7 @@ export type NewsSignal = {
   sources: string[];
   sourceType?: 'items_rolling' | 'snapshot' | 'none';
   explain?: { topTitles: string[]; n: number; avgImpact: number };
+  mockRatio?: number;
 };
 export type RealtimeSignal = { volSurprise: number; amtSurprise: number; ts: number };
 

@@ -13,6 +13,7 @@ type NewsItem = {
   content?: string;
   sentimentScore?: number;
   confidence?: number;
+  isMock?: boolean;
 };
 
 type ApiResponse = {
@@ -101,6 +102,9 @@ export default function ExternalNewsTicker({ symbol }: { symbol: string }) {
                 <div className="flex items-center gap-2">
                   <span className="text-gray-500">{formatTime(it.publishedAt)}</span>
                   <span className="text-gray-400">{it.source}</span>
+                  {it.isMock && (
+                    <span className="text-[10px] text-amber-300 border border-amber-400/40 rounded px-1">[MOCK]</span>
+                  )}
                   {isNew && <span className="text-[10px] text-red-300 border border-red-400/40 rounded px-1">{t('ashare.news.new')}</span>}
                   <span className={cn('text-[10px]', freshness.className)}>
                     {freshness.label} · {formatAge(it.publishedAt)}

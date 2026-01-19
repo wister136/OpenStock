@@ -21,22 +21,32 @@ export class NewsFromItemsProvider implements NewsProvider {
     const symbol = normalizeSymbol(args.symbol);
     try {
       await connectToDatabase();
-      const items = await NewsItem.find({ symbol, ts: { $gte: Date.now() - WINDOW_MS } })
-        .sort({ ts: -1 })
+      const items = await NewsItem.find({ symbol, publishedAt: { $gte: Date.now() - WINDOW_MS } })
+        .sort({ publishedAt: -1 })
         .limit(100)
         .lean();
 
+      const mockCount = items.filter((it: any) => it.isMock === true).length;
+      const mockRatio = items.length ? mockCount / items.length : 0;
+
       const lite: NewsItemLite[] = items.map((it: any) => ({
-        ts: it.ts,
+        ts: it.publishedAt,
         title: it.title,
         source: it.source,
         sentimentScore: it.sentimentScore,
-        impactScore: it.impactScore,
       }));
 
       const rolling = computeRollingNewsSignal({ items: lite, nowMs: Date.now(), windowMs: WINDOW_MS, halfLifeMs: HALF_LIFE_MS });
       if (rolling && rolling.confidence >= MIN_CONFIDENCE) {
-        return { score: rolling.score, confidence: rolling.confidence, ts: rolling.ts, sources: rolling.sources, sourceType: 'items_rolling', explain: rolling.explain };
+        return {
+          score: rolling.score,
+          confidence: rolling.confidence,
+          ts: rolling.ts,
+          sources: rolling.sources,
+          sourceType: 'items_rolling',
+          explain: rolling.explain,
+          mockRatio,
+        };
       }
 
       const snap =
@@ -45,7 +55,14 @@ export class NewsFromItemsProvider implements NewsProvider {
       if (!snap) return null;
       if (!(snap.confidence > 0) || !Number.isFinite(snap.score) || snap.score === 0) return null;
       if (Date.now() - snap.ts > STALE_MS) return null;
-      return { score: snap.score, confidence: snap.confidence, ts: snap.ts, sources: snap.sources, sourceType: 'snapshot' };
+      return {
+        score: snap.score,
+        confidence: snap.confidence,
+        ts: snap.ts,
+        sources: snap.sources,
+        sourceType: 'snapshot',
+        mockRatio,
+      };
     } catch {
       return null;
     }

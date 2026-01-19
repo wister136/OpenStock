@@ -23,6 +23,7 @@ CHECK_INTERVAL = os.getenv("CHECK_INTERVAL")
 POLL_MIN_SEC = 30
 POLL_MAX_SEC = 60
 BACKOFF_SEC = 120
+ONESHOT = os.getenv("NEWS_PUMP_ONESHOT") == "1"
 
 
 POS_WORDS = ["beat", "growth", "upgrade", "surge", "profit", "strong", "rally", "bull"]
@@ -225,6 +226,25 @@ def next_interval() -> int:
     return random.randint(POLL_MIN_SEC, POLL_MAX_SEC)
 
 
+def generate_mock_news(n: int) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    now_ms = int(time.time() * 1000)
+    for i in range(max(1, min(3, n))):
+        ts = now_ms - i * 60_000
+        title = f"Mock news {i + 1} for dev pipeline"
+        content = "Mock news generated for local validation."
+        items.append(
+            {
+                "title": title,
+                "content": content,
+                "url": None,
+                "source": "MOCK",
+                "publishedAt": ts,
+            }
+        )
+    return items
+
+
 def main() -> None:
     if not API_KEY:
         print("Missing NEWS_INGEST_API_KEY, set it before running.")
@@ -252,6 +272,9 @@ def main() -> None:
             print(f"Sent {sent} news items.")
             if max_published > last_ts:
                 update_cursor(provider, "GLOBAL", max_published)
+            if ONESHOT:
+                print("Oneshot mode: exit after single run.")
+                return
             time.sleep(next_interval())
         except Exception as exc:
             print(f"AKShare error: {exc}")
@@ -283,12 +306,54 @@ def main() -> None:
                         if published_at > max_published:
                             max_published = published_at
                 print(f"RSS sent {sent} news items.")
+                if sent == 0:
+                    raise RuntimeError("RSS returned no items")
                 if max_published > last_ts:
                     update_cursor(provider, "GLOBAL", max_published)
+                if ONESHOT:
+                    print("Oneshot mode: exit after single run.")
+                    return
                 time.sleep(next_interval())
             except Exception as exc2:
-                print(f"News pump error: {exc2}")
-                time.sleep(BACKOFF_SEC)
+                print(f"RSS error: {exc2}")
+                try:
+                    provider = "MOCK"
+                    rows = generate_mock_news(3)
+                    last_ts = get_cursor(provider, "GLOBAL")
+                    sent = 0
+                    max_published = last_ts
+                    for row in rows:
+                        published_at = int(row.get("publishedAt") or 0)
+                        if published_at <= last_ts:
+                            continue
+                        payload = {
+                            "symbol": "GLOBAL",
+                            "title": row.get("title") or "",
+                            "content": row.get("content"),
+                            "url": row.get("url"),
+                            "source": "MOCK",
+                            "publishedAt": published_at,
+                            "sentimentScore": compute_sentiment(f"{row.get('title','')} {row.get('content','')}"),
+                            "confidence": 0.3,
+                            "isMock": True,
+                        }
+                        if not payload["title"]:
+                            continue
+                        res = post_news(payload)
+                        if res.get("ok"):
+                            sent += 1
+                            if published_at > max_published:
+                                max_published = published_at
+                    print(f"MOCK sent {sent} news items.")
+                    if max_published > last_ts:
+                        update_cursor(provider, "GLOBAL", max_published)
+                    if ONESHOT:
+                        print("Oneshot mode: exit after single run.")
+                        return
+                    time.sleep(next_interval())
+                except Exception as exc3:
+                    print(f"News pump error: {exc3}")
+                    time.sleep(BACKOFF_SEC)
 
 
 if __name__ == "__main__":

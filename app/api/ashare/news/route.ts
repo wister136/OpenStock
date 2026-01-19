@@ -23,6 +23,7 @@ export async function GET(req: Request) {
         url: it.url,
         sentimentScore: it.sentimentScore,
         confidence: it.confidence,
+        isMock: it.isMock === true,
       })),
     });
   } catch (e: any) {

@@ -10,6 +10,7 @@ export interface INewsItem extends Document {
   fingerprint: string;
   sentimentScore?: number;
   confidence?: number;
+  isMock?: boolean;
 }
 
 const NewsItemSchema = new Schema<INewsItem>(
@@ -23,6 +24,7 @@ const NewsItemSchema = new Schema<INewsItem>(
     fingerprint: { type: String, required: true, unique: true, index: true },
     sentimentScore: { type: Number, required: false, default: undefined },
     confidence: { type: Number, required: false, default: undefined },
+    isMock: { type: Boolean, required: false, default: undefined },
   },
   { timestamps: true }
 );
