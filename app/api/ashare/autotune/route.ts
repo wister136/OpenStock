@@ -117,7 +117,7 @@ export async function GET(req: Request) {
 
   try {
     await connectToDatabase();
-    const latest = await AutoTuneSnapshot.findOne({ userId, symbol, tf }).sort({ createdAt: -1 }).lean();
+    const latest = (await AutoTuneSnapshot.findOne({ userId, symbol, tf }).sort({ createdAt: -1 }).lean()) as any;
     return NextResponse.json({
       ok: true,
       symbol,

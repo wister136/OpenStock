@@ -234,6 +234,7 @@ export type OverlayMarker = Marker & {
   y: number;
   side: 'BUY' | 'SELL';
   key: string;
+  index?: number;
 };
 
 export type StrategySignal = {
@@ -319,6 +320,9 @@ export type BacktestResult = {
   sampleEnd: string | null;
   sampleDays: number | null;
   monthlyReturns: { month: string; retPct: number }[];
+  startDate?: string;
+  endDate?: string;
+  coverDays?: number;
 };
 
 export type BacktestRiskConfig = {

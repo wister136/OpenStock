@@ -80,7 +80,22 @@ export function detectRegime(inputs: RegimeInputs): {
 
   let scoreTrendNews = 0;
   let scorePanicNews = 0;
+  let wNews = config.weights.w_news;
+  const mockRatio = news?.mockRatio;
+  const windowMinutes = Number(process.env.NEWS_ROLLING_WINDOW_MINUTES ?? 120);
+  const effectiveWindowMinutes = Number.isFinite(windowMinutes) ? windowMinutes : 120;
+  if (mockRatio != null && mockRatio > 0) {
+    reasons.push('News source includes MOCK (dev mode)');
+  }
+  if (mockRatio != null && mockRatio >= 0.8) {
+    wNews = wNews * 0.1;
+    reasons.push('News is MOCK -> weight reduced (dev mode)');
+  }
   if (news) {
+    if (news.sourceType === 'items_rolling') {
+      const n = news.explain?.n ?? 0;
+      reasons.push(`News rolling sentiment = ${news.score.toFixed(2)} (N=${n}, window=${effectiveWindowMinutes}m)`);
+    }
     if (news.score < -config.thresholds.newsPanicThreshold) {
       scorePanicNews = clamp01(Math.abs(news.score) * news.confidence);
       reasons.push('News sentiment indicates panic risk');
@@ -109,8 +124,8 @@ export function detectRegime(inputs: RegimeInputs): {
     }
   }
 
-  const trend = config.weights.w_trend * scoreTrendK + config.weights.w_news * scoreTrendNews + config.weights.w_realtime * scoreTrendRT;
-  const panic = config.weights.w_panic * scorePanicK + config.weights.w_news * scorePanicNews + config.weights.w_realtime * scorePanicRT;
+  const trend = config.weights.w_trend * scoreTrendK + wNews * scoreTrendNews + config.weights.w_realtime * scoreTrendRT;
+  const panic = config.weights.w_panic * scorePanicK + wNews * scorePanicNews + config.weights.w_realtime * scorePanicRT;
   const range = config.weights.w_range * scoreRangeK;
 
   const scores: RegimeScores = { trend, range, panic };
@@ -143,6 +158,7 @@ export function detectRegime(inputs: RegimeInputs): {
       scoreRangeK,
       scoreTrendNews,
       scorePanicNews,
+      mockRatio: mockRatio ?? 0,
       scorePanicRT,
       scoreTrendRT,
     },

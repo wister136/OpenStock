@@ -6,14 +6,14 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 
 type NewsItem = {
-  ts: number;
+  publishedAt: number;
   title: string;
   source: string;
   url?: string;
-  summary?: string;
+  content?: string;
   sentimentScore?: number;
-  impactScore?: number;
-  keywords?: string[];
+  confidence?: number;
+  isMock?: boolean;
 };
 
 type ApiResponse = {
@@ -33,19 +33,21 @@ export default function ExternalNewsTicker({ symbol }: { symbol: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    const pollMsRaw = Number(process.env.NEXT_PUBLIC_NEWS_POLL_INTERVAL_MS ?? 10000);
+    const pollMs = Number.isFinite(pollMsRaw) && pollMsRaw > 0 ? pollMsRaw : 10000;
 
     async function load() {
       try {
-        const res = await fetch(`/api/ashare/external/news_item?symbol=${encodeURIComponent(symbol)}&limit=30`, { cache: 'no-store' });
+        const res = await fetch(`/api/ashare/news/feed?symbol=${encodeURIComponent(symbol)}&limit=20`, { cache: 'no-store' });
         if (!res.ok) throw new Error(String(res.status));
         const json = (await res.json()) as ApiResponse;
         if (!json?.ok || cancelled) return;
 
-        const maxTs = json.items.reduce((m, it) => Math.max(m, it.ts || 0), 0);
+        const maxTs = json.items.reduce((m, it) => Math.max(m, it.publishedAt || 0), 0);
         const prevMax = lastMaxTsRef.current;
-        const newItems = json.items.filter((it) => it.ts > prevMax);
+        const newItems = json.items.filter((it) => it.publishedAt > prevMax);
         lastMaxTsRef.current = Math.max(prevMax, maxTs);
-        setNewSet(new Set(newItems.map((it) => it.ts)));
+        setNewSet(new Set(newItems.map((it) => it.publishedAt)));
         setItems(json.items);
         setServerTime(json.serverTime || Date.now());
         setError(false);
@@ -55,7 +57,7 @@ export default function ExternalNewsTicker({ symbol }: { symbol: string }) {
     }
 
     load();
-    const id = setInterval(load, 10_000);
+    const id = setInterval(load, pollMs);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -80,31 +82,38 @@ export default function ExternalNewsTicker({ symbol }: { symbol: string }) {
     return { label: t('ashare.news.stale'), className: 'text-orange-300' };
   };
 
-  const sorted = useMemo(() => [...items].sort((a, b) => b.ts - a.ts), [items]);
+  const sorted = useMemo(() => [...items].sort((a, b) => b.publishedAt - a.publishedAt), [items]);
+  const latestTs = sorted[0]?.publishedAt ?? 0;
+  const isDelayed = latestTs > 0 && serverTime - latestTs > 30 * 60 * 1000;
+  const pollSec = Math.round((Number(process.env.NEXT_PUBLIC_NEWS_POLL_INTERVAL_MS ?? 10000) || 10000) / 1000);
 
   return (
     <div className="rounded-xl bg-white/5 border border-white/5 p-4">
       <div className="flex items-center justify-between">
         <div className="text-xs text-gray-400">{t('ashare.news.title')}</div>
-        <div className="text-[10px] text-gray-500">{t('ashare.news.refreshEvery', { sec: 10 })}</div>
+        <div className="text-[10px] text-gray-500">{t('ashare.news.refreshEvery', { sec: pollSec })}</div>
       </div>
 
-      {error && <div className="mt-3 text-xs text-yellow-400">{t('ashare.news.unavailable')}</div>}
+      {error && <div className="mt-3 text-xs text-yellow-400">News feed unavailable</div>}
+      {!error && isDelayed && <div className="mt-2 text-[10px] text-orange-300">数据延迟（最新新闻超过 30 分钟）</div>}
 
       {!error && (
         <div className="mt-3 max-h-56 overflow-auto space-y-3 pr-1">
-          {sorted.length === 0 && <div className="text-xs text-gray-500">{t('ashare.news.empty')}</div>}
+          {sorted.length === 0 && <div className="text-xs text-gray-500">暂无新闻</div>}
           {sorted.map((it) => {
-            const freshness = freshnessLabel(it.ts);
-            const isNew = newSet.has(it.ts);
+            const freshness = freshnessLabel(it.publishedAt);
+            const isNew = newSet.has(it.publishedAt);
             return (
-              <div key={`${it.ts}-${it.title}`} className="text-xs text-gray-300">
+              <div key={`${it.publishedAt}-${it.title}`} className="text-xs text-gray-300">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-500">{formatTime(it.ts)}</span>
+                  <span className="text-gray-500">{formatTime(it.publishedAt)}</span>
                   <span className="text-gray-400">{it.source}</span>
+                  {it.isMock && (
+                    <span className="text-[10px] text-amber-300 border border-amber-400/40 rounded px-1">[MOCK]</span>
+                  )}
                   {isNew && <span className="text-[10px] text-red-300 border border-red-400/40 rounded px-1">{t('ashare.news.new')}</span>}
                   <span className={cn('text-[10px]', freshness.className)}>
-                    {freshness.label} · {formatAge(it.ts)}
+                    {freshness.label} · {formatAge(it.publishedAt)}
                   </span>
                 </div>
                 <div className="mt-1">
@@ -118,9 +127,9 @@ export default function ExternalNewsTicker({ symbol }: { symbol: string }) {
                 </div>
                 <div className="mt-1 text-[10px] text-gray-500">
                   {t('ashare.news.sentiment')}: {Number.isFinite(it.sentimentScore) ? it.sentimentScore?.toFixed(2) : '--'} ·{' '}
-                  {t('ashare.news.impact')}: {Number.isFinite(it.impactScore) ? it.impactScore?.toFixed(2) : '--'}
+                  confidence: {Number.isFinite(it.confidence) ? it.confidence?.toFixed(2) : '--'}
                 </div>
-                {it.summary && <div className="mt-1 text-[11px] text-gray-500">{it.summary}</div>}
+                {it.content && <div className="mt-1 text-[11px] text-gray-500">{it.content}</div>}
               </div>
             );
           })}

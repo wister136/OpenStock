@@ -30,7 +30,7 @@ export class BarsRealtimeProvider implements RealtimeProvider {
 
     try {
       await connectToDatabase();
-      const cached = await RealtimeTapeSnapshot.findOne({ symbol, timeframe }).sort({ ts: -1 }).lean();
+      const cached = (await RealtimeTapeSnapshot.findOne({ symbol, timeframe }).sort({ ts: -1 }).lean()) as any;
       if (cached && now - cached.ts < CACHE_TTL_MS) {
         if (Number.isFinite(cached.volSurprise) || Number.isFinite(cached.amtSurprise)) {
           return {

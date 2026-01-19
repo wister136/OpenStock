@@ -1,83 +1,115 @@
 import { NextResponse } from 'next/server';
 
 import { connectToDatabase } from '@/database/mongoose';
+import NewsItem from '@/database/models/NewsItem';
+import NewsCursor from '@/database/models/NewsCursor';
 import NewsSentimentSnapshot from '@/database/models/NewsSentimentSnapshot';
+import { computeRollingSentiment } from '@/lib/ashare/news_aggregation';
 import { normalizeSymbol } from '@/lib/ashare/symbol';
-
-const NEWS_TTL_MS = 4 * 60 * 60 * 1000;
+import { sha1 } from '@/lib/hash';
 
 export async function POST(req: Request) {
+  const apiKey = req.headers.get('x-api-key');
+  if (!apiKey || apiKey !== process.env.NEWS_INGEST_API_KEY) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await req.json();
   const symbol = normalizeSymbol(body?.symbol ?? 'GLOBAL') || 'GLOBAL';
-  const ts = Number(body?.ts ?? Date.now());
-  const score = Number(body?.score);
-  const confidence = Number(body?.confidence);
-  const sources = Array.isArray(body?.sources) ? body.sources.map(String).filter(Boolean) : [];
-  const topKeywords = Array.isArray(body?.topKeywords) ? body.topKeywords.map(String).filter(Boolean) : [];
-  const rawCount = body?.rawCount == null ? undefined : Number(body.rawCount);
+  const publishedAt = Number(body?.ts ?? body?.publishedAt);
+  const title = typeof body?.title === 'string' ? body.title.trim() : '';
+  const content =
+    typeof body?.content === 'string'
+      ? body.content.trim()
+      : typeof body?.contentSnippet === 'string'
+        ? body.contentSnippet.trim()
+      : typeof body?.summary === 'string'
+        ? body.summary.trim()
+        : undefined;
+  const url = typeof body?.url === 'string' ? body.url.trim() : undefined;
+  const source = typeof body?.source === 'string' ? body.source.trim() : '';
+  const sentimentScore = body?.score == null ? (body?.sentimentScore == null ? undefined : Number(body.sentimentScore)) : Number(body.score);
+  const confidence = body?.confidence == null ? undefined : Number(body.confidence);
+  const isMock = body?.isMock === true;
 
-  if (!Number.isFinite(ts) || String(ts).length < 12) {
-    return NextResponse.json({ ok: false, error: 'Invalid ts' }, { status: 400 });
+  if (!Number.isFinite(publishedAt)) {
+    return NextResponse.json({ ok: false, error: 'Invalid publishedAt' }, { status: 400 });
   }
-  if (!Number.isFinite(score) || score < -1 || score > 1) {
-    return NextResponse.json({ ok: false, error: 'Invalid score' }, { status: 400 });
+  if (!title || !source || !content) {
+    return NextResponse.json({ ok: false, error: 'Missing title/source/content' }, { status: 400 });
   }
-  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-    return NextResponse.json({ ok: false, error: 'Invalid confidence' }, { status: 400 });
-  }
+
+  const fingerprint = sha1(`${source}|${symbol}|${title}|${publishedAt}`);
+  const serverTime = Date.now();
 
   try {
     await connectToDatabase();
-    const saved = await NewsSentimentSnapshot.create({
-      symbol,
-      ts,
-      score,
-      confidence,
-      sources,
-      topKeywords: topKeywords.length ? topKeywords : undefined,
-      rawCount: Number.isFinite(rawCount) ? rawCount : undefined,
-    });
-    return NextResponse.json({
-      ok: true,
-      saved: {
-        symbol: saved.symbol,
-        ts: saved.ts,
-        score: saved.score,
-        confidence: saved.confidence,
+    const result = await NewsItem.updateOne(
+      { fingerprint },
+      {
+        $setOnInsert: {
+          symbol,
+          publishedAt,
+          title,
+          content,
+          url,
+          source,
+          fingerprint,
+          sentimentScore,
+          confidence,
+          isMock,
+        },
       },
-    });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
-  }
-}
+      { upsert: true }
+    );
+    const inserted = result.upsertedCount > 0;
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const symbol = normalizeSymbol(searchParams.get('symbol') ?? 'GLOBAL') || 'GLOBAL';
-  try {
-    await connectToDatabase();
-    const latest =
-      (await NewsSentimentSnapshot.findOne({ symbol }).sort({ ts: -1 }).lean()) ||
-      (await NewsSentimentSnapshot.findOne({ symbol: 'GLOBAL' }).sort({ ts: -1 }).lean());
-    const now = Date.now();
-    if (!latest) {
-      return NextResponse.json({ ok: true, symbol, latest: null });
+    await NewsCursor.updateOne(
+      { source, symbol },
+      { $max: { lastTs: publishedAt }, $setOnInsert: { source, symbol } },
+      { upsert: true }
+    );
+
+    if (inserted) {
+      const windowHours = Number(process.env.NEWS_DECAY_WINDOW_HOURS ?? 2);
+      const decayK = Number(process.env.NEWS_DECAY_K ?? 0.01);
+      const windowMs = (Number.isFinite(windowHours) ? windowHours : 2) * 60 * 60 * 1000;
+      const recent = await NewsItem.find({ symbol, publishedAt: { $gte: serverTime - windowMs } })
+        .sort({ publishedAt: -1 })
+        .limit(200)
+        .lean();
+      const rolling = computeRollingSentiment(
+        recent.map((it: any) => ({
+          publishedAt: it.publishedAt,
+          sentimentScore: it.sentimentScore,
+          confidence: it.confidence,
+        })),
+        serverTime,
+        Number.isFinite(windowHours) ? windowHours : 2,
+        Number.isFinite(decayK) ? decayK : 0.01
+      );
+      if (rolling) {
+        const sources = Array.from(new Set(recent.map((it: any) => it.source).filter(Boolean))) as string[];
+        await NewsSentimentSnapshot.updateOne(
+          { symbol, ts: serverTime },
+          {
+            $set: {
+              symbol,
+              ts: serverTime,
+              score: rolling.score,
+              confidence: rolling.confidence,
+              sources,
+              rawCount: rolling.count,
+            },
+          },
+          { upsert: true }
+        );
+      }
     }
-    const ageMs = now - latest.ts;
-    return NextResponse.json({
-      ok: true,
-      symbol,
-      latest: {
-        ts: latest.ts,
-        score: latest.score,
-        confidence: latest.confidence,
-        sources: latest.sources,
-        topKeywords: latest.topKeywords,
-      },
-      ageMs,
-      ttlMs: NEWS_TTL_MS,
-      isStale: ageMs > NEWS_TTL_MS,
-    });
+    if (!inserted) {
+      return NextResponse.json({ ok: true, status: 'skipped', reason: 'duplicate', symbol, serverTime });
+    }
+    return NextResponse.json({ ok: true, status: 'inserted', symbol, serverTime });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
