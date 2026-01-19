@@ -29,6 +29,7 @@ export type Decision = {
   serverTime: number;
   external_used: { news: boolean; realtime: boolean };
   news_source: 'items_rolling' | 'snapshot' | 'none';
+  dataFreshness: { newsAgeMs: number | null };
 };
 
 export type DecisionInputs = {
@@ -49,7 +50,7 @@ export type DecisionInputs = {
 
 const decisionCooldown = new Map<string, { ts: number; action: StrategyAction }>();
 const COOLDOWN_MS = 30_000;
-const NEWS_STALE_MS = 4 * 60 * 60 * 1000;
+const DEFAULT_NEWS_TTL_MS = 2 * 60 * 60 * 1000;
 const REALTIME_STALE_MS: Record<'1m' | '5m', number> = { '1m': 3 * 60 * 1000, '5m': 6 * 60 * 1000 };
 
 function pickStrategy(regime: MarketRegime): 'TSMOM' | 'MEAN_REVERSION' | 'RISK_OFF' {
@@ -101,7 +102,9 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
   }
 
   const now = Date.now();
-  const newsUnavailable = !news || now - news.ts > NEWS_STALE_MS;
+  const newsTtlMs = Number(process.env.NEWS_TTL_MS ?? DEFAULT_NEWS_TTL_MS);
+  const effectiveNewsTtl = Number.isFinite(newsTtlMs) ? newsTtlMs : DEFAULT_NEWS_TTL_MS;
+  const newsUnavailable = !news || now - news.ts > effectiveNewsTtl;
   if (newsUnavailable) news = null;
   const realtimeUnavailable = !realtime || now - realtime.ts > REALTIME_STALE_MS[timeframe === '5m' ? '5m' : '1m'];
   if (realtimeUnavailable) realtime = null;
@@ -126,7 +129,13 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
     const direction = news.score < 0 ? 'negative' : news.score > 0 ? 'positive' : 'neutral';
     const topTitles = (news.explain?.topTitles ?? []).slice(0, 3).join(' | ');
     const suffix = topTitles ? `, top: ${topTitles}` : '';
-    reasons.push(`Rolling news sentiment ${direction} (${news.score.toFixed(2)}) contributes to regime${suffix}`);
+    const influence =
+      direction === 'negative'
+        ? 'increasing panic score'
+        : direction === 'positive'
+          ? 'increasing trend score'
+          : 'slightly shifting regime score';
+    reasons.push(`Rolling news sentiment ${direction} (${news.score.toFixed(2)}), ${influence}${suffix}`);
   }
   if (newsUnavailable) reasons.push('News signal unavailable (missing or stale) -> fallback to Kline');
   if (realtimeUnavailable) reasons.push('Realtime signal unavailable (missing or stale) -> fallback to Kline');
@@ -195,6 +204,7 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
     serverTime: now,
     external_used: { news: Boolean(news), realtime: Boolean(realtime) },
     news_source: newsSource,
+    dataFreshness: { newsAgeMs: news ? Math.max(0, now - news.ts) : null },
   };
 
   if (!lastSnapshot || now - lastSnapshot.ts > 60_000) {

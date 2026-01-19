@@ -1,4 +1,11 @@
-export type NewsSignal = { score: number; confidence: number; ts: number; sources: string[] };
+export type NewsSignal = {
+  score: number;
+  confidence: number;
+  ts: number;
+  sources: string[];
+  sourceType?: 'items_rolling' | 'snapshot' | 'none';
+  explain?: { topTitles: string[]; n: number; avgImpact: number };
+};
 export type RealtimeSignal = { volSurprise: number; amtSurprise: number; ts: number };
 
 export interface NewsProvider {
