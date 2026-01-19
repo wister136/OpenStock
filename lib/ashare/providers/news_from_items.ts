@@ -40,8 +40,8 @@ export class NewsFromItemsProvider implements NewsProvider {
       }
 
       const snap =
-        (await NewsSentimentSnapshot.findOne({ symbol }).sort({ ts: -1 }).lean()) ||
-        (await NewsSentimentSnapshot.findOne({ symbol: 'GLOBAL' }).sort({ ts: -1 }).lean());
+        ((await NewsSentimentSnapshot.findOne({ symbol }).sort({ ts: -1 }).lean()) as any) ||
+        ((await NewsSentimentSnapshot.findOne({ symbol: 'GLOBAL' }).sort({ ts: -1 }).lean()) as any);
       if (!snap) return null;
       if (!(snap.confidence > 0) || !Number.isFinite(snap.score) || snap.score === 0) return null;
       if (Date.now() - snap.ts > STALE_MS) return null;

@@ -110,7 +110,7 @@ export async function getDecision(inputs: DecisionInputs): Promise<Decision> {
   if (realtimeUnavailable) realtime = null;
 
   const { default: DecisionSnapshot } = await import('@/database/models/DecisionSnapshot');
-  const lastSnapshot = await DecisionSnapshot.findOne({ userId, symbol, timeframe }).sort({ ts: -1 }).lean();
+  const lastSnapshot = (await DecisionSnapshot.findOne({ userId, symbol, timeframe }).sort({ ts: -1 }).lean()) as any;
   const lastRegime = (lastSnapshot?.regime as MarketRegime | undefined) ?? null;
 
   const regimeRes = detectRegime({ bars, news, realtime, config, lastRegime });

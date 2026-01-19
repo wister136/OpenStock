@@ -113,7 +113,7 @@ export function recommendStrategies(
     ...DEFAULT_BACKTEST_CONFIG,
     capital,
     entryMode: 'ALL_IN',
-    risk: { ...DEFAULT_BACKTEST_CONFIG.risk, enable: true },
+    risk: DEFAULT_BACKTEST_CONFIG.risk ? { ...DEFAULT_BACKTEST_CONFIG.risk, enable: true } : undefined,
   };
 
   const results: StrategyRecommendation[] = [];

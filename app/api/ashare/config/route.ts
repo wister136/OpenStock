@@ -70,7 +70,7 @@ export async function GET(req: Request) {
   try {
     await connectToDatabase();
     const userId = String(session.user.id);
-    let config = await AshareStrategyConfig.findOne({ userId, symbol }).lean();
+    let config = (await AshareStrategyConfig.findOne({ userId, symbol }).lean()) as any;
     if (!config) {
       const defaults = buildDefaultConfig(userId, symbol);
       config = (await AshareStrategyConfig.create(defaults)).toObject();
@@ -103,7 +103,7 @@ export async function POST(req: Request) {
   try {
     await connectToDatabase();
     const userId = String(session.user.id);
-    const existing = await AshareStrategyConfig.findOne({ userId, symbol }).lean();
+    const existing = (await AshareStrategyConfig.findOne({ userId, symbol }).lean()) as any;
     const merged = normalizeConfig(
       {
         ...(existing || {}),
@@ -115,11 +115,11 @@ export async function POST(req: Request) {
       symbol
     );
 
-    const config = await AshareStrategyConfig.findOneAndUpdate(
+    const config = (await AshareStrategyConfig.findOneAndUpdate(
       { userId, symbol },
       { $set: merged },
       { new: true, upsert: true }
-    ).lean();
+    ).lean()) as any;
 
     return NextResponse.json({ ok: true, config });
   } catch (e: any) {

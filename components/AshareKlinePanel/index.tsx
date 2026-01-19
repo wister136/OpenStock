@@ -726,7 +726,7 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
 
   useEffect(() => {
     const stored = safeLocalStorageGet('openstock_tv_favs_v1');
-    if (stored && typeof stored === 'object') setFavorites(stored);
+    if (stored && typeof stored === 'object') setFavorites(stored as Record<string, boolean>);
   }, []);
 
   useEffect(() => {
@@ -819,24 +819,28 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
 
   const strategyCalc = useMemo(() => buildStrategyMarkers(strategy, bars, stParams), [strategy, bars, stParams]);
   const btConfig = useMemo(
-    () => ({
-      ...DEFAULT_BACKTEST_CONFIG,
-      entryMode: btEntryMode,
-      dateFrom: btDateFromText ? btDateFromText : undefined,
-      dateTo: btDateToText ? btDateToText : undefined,
-      feeBps: btFeeBps,
-      slippageBps: btSlippageBps,
-      allowPyramiding: btAllowPyramiding,
-      allowSameDirectionRepeat: btAllowSameDirRepeat,
-      orderLots: btOrderLots,
-      maxEntries: btMaxEntries,
-    
-      risk: {
-        ...(DEFAULT_BACKTEST_CONFIG.risk ?? {}),
-        hardMaxDdPct: btHardDdPct,
-        maxDdCircuitPct: btHardDdPct > 0 ? Math.max(0, Math.min(btHardDdPct * 0.84, btHardDdPct - 0.3)) : 0,
-      },
-    }),
+    () => {
+      const baseRisk = DEFAULT_BACKTEST_CONFIG.risk;
+      return {
+        ...DEFAULT_BACKTEST_CONFIG,
+        entryMode: btEntryMode,
+        dateFrom: btDateFromText ? btDateFromText : undefined,
+        dateTo: btDateToText ? btDateToText : undefined,
+        feeBps: btFeeBps,
+        slippageBps: btSlippageBps,
+        allowPyramiding: btAllowPyramiding,
+        allowSameDirectionRepeat: btAllowSameDirRepeat,
+        orderLots: btOrderLots,
+        maxEntries: btMaxEntries,
+        risk: baseRisk
+          ? {
+              ...baseRisk,
+              hardMaxDdPct: btHardDdPct,
+              maxDdCircuitPct: btHardDdPct > 0 ? Math.max(0, Math.min(btHardDdPct * 0.84, btHardDdPct - 0.3)) : 0,
+            }
+          : undefined,
+      };
+    },
     [btEntryMode, btFeeBps, btSlippageBps, btAllowPyramiding, btAllowSameDirRepeat, btOrderLots, btMaxEntries, btHardDdPct, btDateFromText, btDateToText]
   );
 
@@ -1983,7 +1987,7 @@ useEffect(() => {
               >
                 {showParams ? t('common.collapse') : t('common.expand')}
               </Button>
-              <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-[10px]" onClick={applyConfig} disabled={configLoading}>
+              <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-[10px]" onClick={() => applyConfig()} disabled={configLoading}>
                 {t('common.apply')}
               </Button>
             </div>
@@ -2671,7 +2675,7 @@ useEffect(() => {
                               <div className="text-[11px] text-gray-400">{t('ashare.panel.buyHold')}</div>
                               <div className="text-base font-semibold">{fmt(backtest.buyHoldPct, 2)}%</div>
                               <div className="text-[11px] text-gray-500 mt-0.5">
-                                {t('ashare.panel.excessReturn', { value: fmt(backtest.netProfitPct - backtest.buyHoldPct, 2) })}
+                                {t('ashare.panel.excessReturn', { value: fmt(backtest.netProfitPct - (backtest.buyHoldPct ?? 0), 2) })}
                               </div>
                             </div>
                           </div>
@@ -2795,7 +2799,7 @@ function EquitySparkline({
       seriesRef.current = line;
 
       try {
-        line.setData(data);
+        line.setData(data as any);
         chart.timeScale().fitContent();
       } catch {}
     }
@@ -2816,7 +2820,7 @@ function EquitySparkline({
   React.useEffect(() => {
     try {
       if (!seriesRef.current) return;
-      seriesRef.current.setData(data);
+      seriesRef.current.setData(data as any);
       chartRef.current?.timeScale?.()?.fitContent?.();
     } catch {}
   }, [data]);

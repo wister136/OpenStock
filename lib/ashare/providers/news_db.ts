@@ -12,8 +12,8 @@ export class DbNewsProvider implements NewsProvider {
       await connectToDatabase();
       const symbol = normalizeSymbol(args.symbol);
       const latest =
-        (await NewsSentimentSnapshot.findOne({ symbol }).sort({ ts: -1 }).lean()) ||
-        (await NewsSentimentSnapshot.findOne({ symbol: 'GLOBAL' }).sort({ ts: -1 }).lean());
+        ((await NewsSentimentSnapshot.findOne({ symbol }).sort({ ts: -1 }).lean()) as any) ||
+        ((await NewsSentimentSnapshot.findOne({ symbol: 'GLOBAL' }).sort({ ts: -1 }).lean()) as any);
 
       if (!latest) return null;
       const ttlMs = Number(process.env.NEWS_TTL_MS ?? DEFAULT_TTL_MS);

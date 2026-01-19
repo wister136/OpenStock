@@ -67,7 +67,7 @@ export async function GET(req: Request) {
   try {
     await connectToDatabase();
     const userId = String(session.user.id);
-    let config = await AshareStrategyConfig.findOne({ userId, symbol }).lean();
+    let config = (await AshareStrategyConfig.findOne({ userId, symbol }).lean()) as any;
     if (!config) {
       config = (await AshareStrategyConfig.create(buildDefaultConfig(userId, symbol))).toObject();
     }

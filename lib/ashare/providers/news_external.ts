@@ -42,7 +42,7 @@ export class ExternalNewsProvider implements NewsProvider {
 
     try {
       await connectToDatabase();
-      const cached = await NewsSentimentSnapshot.findOne({ symbol }).sort({ ts: -1 }).lean();
+      const cached = (await NewsSentimentSnapshot.findOne({ symbol }).sort({ ts: -1 }).lean()) as any;
       if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
         return { score: cached.score, confidence: cached.confidence, ts: cached.ts, sources: cached.sources };
       }

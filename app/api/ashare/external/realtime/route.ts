@@ -79,7 +79,7 @@ export async function GET(req: Request) {
   }
   try {
     await connectToDatabase();
-    const latest = await RealtimeTapeSnapshot.findOne({ symbol, timeframe }).sort({ ts: -1 }).lean();
+    const latest = (await RealtimeTapeSnapshot.findOne({ symbol, timeframe }).sort({ ts: -1 }).lean()) as any;
     const now = Date.now();
     if (!latest) {
       return NextResponse.json({ ok: true, symbol, latest: null });
