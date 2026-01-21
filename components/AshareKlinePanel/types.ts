@@ -22,6 +22,73 @@ export type StrategyKey =
 
 export type IndicatorKey = 'ma5' | 'ma10' | 'ma20' | 'ema20' | 'bbands' | 'rsi14' | 'macd';
 
+export type RegimeConfig = {
+  weights: {
+    w_trend: number;
+    w_range: number;
+    w_panic: number;
+    w_news: number;
+    w_realtime: number;
+  };
+  thresholds: {
+    trendScoreThreshold: number;
+    panicVolRatio: number;
+    panicDrawdown: number;
+    volRatioLow: number;
+    volRatioHigh: number;
+    minLiquidityAmountRatio: number;
+    minLiquidityVolumeRatio?: number;
+    realtimeVolSurprise: number;
+    realtimeAmtSurprise: number;
+    newsPanicThreshold: number;
+    newsTrendThreshold: number;
+    hysteresisThreshold: number;
+  };
+  positionCaps: {
+    trend: number;
+    range: number;
+    panic: number;
+  };
+};
+
+export type DecisionPayload = {
+  regime: 'TREND' | 'RANGE' | 'PANIC';
+  regime_confidence: number;
+  strategy: 'TSMOM' | 'MEAN_REVERSION' | 'RISK_OFF';
+  action: 'BUY' | 'SELL' | 'HOLD';
+  position_cap: number;
+  external_signals: {
+    news?: { score: number; confidence: number; ts: number };
+    realtime?: { volSurprise: number; amtSurprise: number; ts: number };
+  };
+  reasons: string[];
+  serverTime: number;
+  external_used: { news: boolean; realtime: boolean };
+  news_source: 'items_rolling' | 'snapshot' | 'none';
+};
+
+export type DecisionMeta = {
+  cacheHit: boolean;
+  dataFreshness: {
+    barsAgeMs: number;
+    newsAgeMs: number | null;
+    realtimeAgeMs: number | null;
+  };
+  serverTime: number;
+  external_used: { news: boolean; realtime: boolean };
+  news_source: 'items_rolling' | 'snapshot' | 'none';
+};
+
+export type NewsFeedItem = {
+  title: string;
+  title_en?: string;
+  source: string;
+  url?: string;
+  publishedAt: number;
+  sentimentScore?: number;
+  confidence?: number;
+};
+
 // =========================
 // Backtest config（回测口径统一定义）
 // =========================

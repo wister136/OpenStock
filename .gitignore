@@ -9,6 +9,11 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+# Python virtual environment (新增：忽略venv相关目录)
+.venv/
+venv/
+env/
+*.env.local
 
 # testing
 /coverage
