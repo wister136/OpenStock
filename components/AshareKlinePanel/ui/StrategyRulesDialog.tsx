@@ -101,7 +101,7 @@ export default function StrategyRulesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl w-[92vw] h-[85vh] p-0 overflow-hidden bg-[#0b1220] border border-white/10">
+      <DialogContent className="max-w-5xl w-[92vw] h-[85vh] p-0 overflow-hidden bg-gray-800 border border-white/10">
         <DialogHeader className="px-4 pt-4 pb-2">
           <DialogTitle className="text-white text-sm">
             {t("ashare.rules.title", { strategy: strategyKey })}

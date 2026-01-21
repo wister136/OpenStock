@@ -19,6 +19,7 @@ export async function GET(req: Request) {
       items: items.map((it: any) => ({
         publishedAt: it.publishedAt,
         title: it.title,
+        title_en: it.title_en,
         source: it.source,
         url: it.url,
         sentimentScore: it.sentimentScore,

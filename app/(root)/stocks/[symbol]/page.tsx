@@ -16,6 +16,11 @@ import { tServer } from '@/lib/i18n/server';
 
 const scriptBase = 'https://s3.tradingview.com/external-embedding/embed-widget-';
 
+const ASHARE_NAME_MAP: Record<string, string> = {
+  'SSE:600226': '亨通股份',
+  'SSE:603516': '淳中科技',
+};
+
 function normalizeSymbol(raw: string): string {
   let s = (raw || '').trim();
   try {
@@ -53,6 +58,7 @@ export default async function StockDetails({
   const { symbol: rawSymbol } = await params;
   const symbol = normalizeSymbol(rawSymbol);
   const tvUrl = tradingViewSymbolPage(symbol);
+  const companyName = ASHARE_NAME_MAP[symbol];
   const labels = {
     home: await tServer('stock.home'),
     openTradingView: await tServer('stock.openTradingView'),
@@ -75,8 +81,8 @@ export default async function StockDetails({
 
   if (isAshareSymbol(symbol)) {
     return (
-      <div className="w-full px-4 py-6">
-        <div className="mx-auto w-full max-w-7xl">
+      <div className="w-full px-0 py-6">
+        <div className="w-full">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex flex-col gap-1">
               <div className="text-sm text-gray-400">
@@ -84,13 +90,16 @@ export default async function StockDetails({
                   {labels.home}
                 </Link>
                 <span className="mx-2 text-gray-600">/</span>
-                <span className="text-gray-300">{symbol}</span>
+                <span className="text-gray-300">
+                  {symbol}
+                  {companyName ? ` ${companyName}` : ''}
+                </span>
               </div>
-              <h1 className="text-2xl font-semibold text-white">{symbol}</h1>
+              <h1 className="text-2xl font-semibold text-white">{companyName ? `${symbol} ${companyName}` : symbol}</h1>
             </div>
 
             <div className="flex items-center gap-3">
-              <WatchlistButton symbol={symbol} company={symbol} isInWatchlist={false} />
+              <WatchlistButton symbol={symbol} company={companyName ?? symbol} isInWatchlist={false} />
               <a
                 href={tvUrl}
                 target="_blank"
@@ -177,8 +186,8 @@ export default async function StockDetails({
   }
 
   return (
-    <div className="w-full px-4 py-6">
-      <div className="mx-auto w-full max-w-7xl">
+    <div className="w-full px-0 py-6">
+      <div className="w-full">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-col gap-1">
             <div className="text-sm text-gray-400">

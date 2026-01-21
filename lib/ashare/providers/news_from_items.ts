@@ -46,6 +46,7 @@ export class NewsFromItemsProvider implements NewsProvider {
       let weightSum = 0;
       let weightedScore = 0;
       let weightedConfidence = 0;
+      let impactSum = 0;
       let count = 0;
 
       const scoredItems = items.filter((it: any) => Number.isFinite(it.sentimentScore));
@@ -53,18 +54,21 @@ export class NewsFromItemsProvider implements NewsProvider {
         const ts = Number(it.publishedAt);
         if (!Number.isFinite(ts)) continue;
         const ageMinutes = Math.max(0, (now - ts) / 60000);
-        const weight = Math.exp(-effectiveLambda * ageMinutes);
+        const impact = Number.isFinite(it.impactScore) ? Number(it.impactScore) : 0.5;
+        const weight = Math.exp(-effectiveLambda * ageMinutes) * impact;
         weightSum += weight;
         weightedScore += Number(it.sentimentScore) * weight;
         if (Number.isFinite(it.confidence)) {
           weightedConfidence += Number(it.confidence) * weight;
         }
+        impactSum += impact;
         count += 1;
       }
 
       if (count > 0 && weightSum > 0) {
         const score = Math.max(-1, Math.min(1, weightedScore / weightSum));
         const confidence = clamp01(weightedConfidence / weightSum);
+        const avgImpact = count ? impactSum / count : 0.5;
         const topTitles = scoredItems
           .slice()
           .sort((a: any, b: any) => Math.abs(Number(b.sentimentScore)) - Math.abs(Number(a.sentimentScore)))
@@ -79,8 +83,9 @@ export class NewsFromItemsProvider implements NewsProvider {
           ts: latestTs,
           sources,
           sourceType: 'items_rolling',
-          explain: { topTitles, n: count, avgImpact: confidence },
+          explain: { topTitles, n: count, avgImpact },
           mockRatio,
+          n: count,
         };
       }
 

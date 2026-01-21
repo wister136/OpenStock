@@ -68,7 +68,7 @@ export default function StockCardDualLink({ symbol, label }: Props) {
 
   return (
     <div
-      className="relative cursor-pointer rounded-xl border border-gray-800 bg-[#0F0F0F] p-4"
+      className="relative cursor-pointer rounded-xl border border-white/10 bg-gray-800 p-4"
       onClick={handleClick}
       role="link"
       aria-label={`Open ${label}`}

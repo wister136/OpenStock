@@ -262,6 +262,9 @@ NEWS_PUMP_ENABLED=true
 NEXT_PUBLIC_NEWS_POLL_INTERVAL_MS=10000
 NEWS_ROLLING_WINDOW_MINUTES=120
 NEWS_DECAY_LAMBDA=0.02
+# Legacy fallback (optional)
+NEWS_DECAY_WINDOW_HOURS=2
+NEWS_DECAY_K=0.01
 NEWS_TTL_MS=7200000
 NEXTJS_API_URL=http://localhost:3000/api/ashare/external/news
 CHECK_INTERVAL=60
@@ -300,6 +303,9 @@ NEWS_PUMP_ENABLED=true
 NEXT_PUBLIC_NEWS_POLL_INTERVAL_MS=10000
 NEWS_ROLLING_WINDOW_MINUTES=120
 NEWS_DECAY_LAMBDA=0.02
+# Legacy fallback (optional)
+NEWS_DECAY_WINDOW_HOURS=2
+NEWS_DECAY_K=0.01
 NEWS_TTL_MS=7200000
 NEXTJS_API_URL=http://localhost:3000/api/ashare/external/news
 CHECK_INTERVAL=60
@@ -355,7 +361,9 @@ public/assets/images/   # logos and screenshots
 - 实时新闻接入指南见：`docs/README-news.md`
 - News pump (dev)
     - Install: `pip install -r scripts/requirements.txt`
-    - Run: `python scripts/news_pump.py`
+    - Required: `NEWS_INGEST_API_KEY` in `.env`
+    - Optional: `NEWS_CURSOR_ENDPOINT` (default to `/api/ashare/external/news_cursor`)
+    - Run: `python scripts/news_pump.py` (CLS/SINA/THS → RSS → MOCK fallback)
     - Smoke test (PowerShell): `powershell -ExecutionPolicy Bypass -File scripts/smoke_news.ps1`
 
 - Finnhub

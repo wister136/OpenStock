@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback, useLayoutEffect } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import type { OHLCVBar } from '@/lib/indicators';
 import { bollingerBands, ema, lastFinite, macd, rollingMax, rollingMin, rsi, sma } from '@/lib/indicators';
 import { useI18n } from '@/lib/i18n';
+import { useTheme } from 'next-themes';
 
 import { detectMarketRegime, recommendStrategies } from './engine/regime';
 import type { MarketRegimeInfo, StrategyRecommendation } from './types';
@@ -53,6 +54,7 @@ import ExternalNewsTicker from '@/components/ExternalNewsTicker';
 
 export default function AshareKlinePanel({ symbol, title }: { symbol: string; title?: string }) {
   const { t } = useI18n();
+  const { theme } = useTheme();
 
   type RegimeConfig = {
     weights: {
@@ -111,7 +113,24 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
     news_source: 'items_rolling' | 'snapshot' | 'none';
   };
 
+  type NewsFeedItem = {
+    title: string;
+    title_en?: string;
+    source: string;
+    url?: string;
+    publishedAt: number;
+    sentimentScore?: number;
+    confidence?: number;
+  };
+
   const tvUrl = useMemo(() => tvChartUrl(symbol), [symbol]);
+  const isLight = theme === 'light';
+  const chartBg = isLight ? '#f8fafc' : '#0d0d0d';
+  const chartText = isLight ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.75)';
+  const chartTextMuted = isLight ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.65)';
+  const gridColor = isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.06)';
+  const crosshairColor = isLight ? 'rgba(15,23,42,0.35)' : 'rgba(255,255,255,0.25)';
+  const borderColor = isLight ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.08)';
 
   const strategyLabelKey: Record<StrategyKey, string> = {
     none: 'strategy.label.none',
@@ -222,6 +241,11 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
     return new Date(ts).toLocaleTimeString();
   };
 
+  const fmtDateTime = (ts?: number) => {
+    if (!ts || !Number.isFinite(ts)) return '--';
+    return new Date(ts).toLocaleString();
+  };
+
   const fmtAge = (ms?: number | null) => {
     if (ms == null || !Number.isFinite(ms)) return '--';
     const min = Math.max(0, Math.floor(ms / 60000));
@@ -310,11 +334,19 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [showAllReasons, setShowAllReasons] = useState(false);
   const [showParams, setShowParams] = useState(true);
+  const [newsDlgOpen, setNewsDlgOpen] = useState(false);
+  const [newsItems, setNewsItems] = useState<NewsFeedItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsError, setNewsError] = useState<string | null>(null);
+  const [translateCount, setTranslateCount] = useState<number | null>(null);
+  const [paramPanelHeight, setParamPanelHeight] = useState<number | null>(null);
   const [refreshInterval, setRefreshInterval] = useState<'3s' | '5s' | '10s' | 'manual'>('5s');
   const [autoTuneLoading, setAutoTuneLoading] = useState(false);
   const [autoTuneError, setAutoTuneError] = useState<string | null>(null);
   const [autoTuneResult, setAutoTuneResult] = useState<any>(null);
   const [autoTuneBackup, setAutoTuneBackup] = useState<RegimeConfig | null>(null);
+
+  const paramPanelRef = useRef<HTMLDivElement | null>(null);
 
 
 
@@ -452,6 +484,84 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
   useEffect(() => {
     loadAutoTune();
   }, [loadAutoTune]);
+
+  const recomputeParamHeight = useCallback(() => {
+    if (!showParams) {
+      setParamPanelHeight(null);
+      return;
+    }
+    const panel = paramPanelRef.current;
+    if (!panel) return;
+    setParamPanelHeight(panel.getBoundingClientRect().height);
+  }, [showParams]);
+
+  useLayoutEffect(() => {
+    recomputeParamHeight();
+    if (!showParams) return;
+    const panel = paramPanelRef.current;
+    if (!panel) return;
+    const ro = new ResizeObserver(() => recomputeParamHeight());
+    ro.observe(panel);
+    window.addEventListener('resize', recomputeParamHeight);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', recomputeParamHeight);
+    };
+  }, [recomputeParamHeight, showParams]);
+
+  useEffect(() => {
+    if (!newsDlgOpen) return;
+    let cancelled = false;
+
+    async function loadNews() {
+      setNewsLoading(true);
+      setNewsError(null);
+      try {
+        const res = await fetch(`/api/ashare/events/feed?symbol=${encodeURIComponent(symbol)}&limit=30`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json?.ok) throw new Error('Invalid response');
+        const items = Array.isArray(json.items)
+          ? (json.items as any[])
+              .filter((it) => it?.type === 'news')
+              .map(
+                (it): NewsFeedItem => ({
+                  title: String(it.title || ''),
+                  title_en: typeof it.title === 'string' ? it.title : undefined,
+                  source: String(it.source || ''),
+                  url: typeof it.url === 'string' ? it.url : undefined,
+                  publishedAt: Number(it.ts ?? it.publishedAt ?? 0),
+                  sentimentScore: typeof it.sentimentScore === 'number' ? it.sentimentScore : undefined,
+                  confidence: typeof it.confidence === 'number' ? it.confidence : undefined,
+                })
+              )
+          : [];
+        if (!cancelled) setNewsItems(items);
+      } catch (e: any) {
+        if (!cancelled) setNewsError(String(e?.message ?? e));
+      } finally {
+        if (!cancelled) setNewsLoading(false);
+      }
+    }
+
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/translate/stats', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        const total = Number(json?.stats?.total);
+        if (!cancelled) setTranslateCount(Number.isFinite(total) ? total : 0);
+      } catch {
+        if (!cancelled) setTranslateCount(null);
+      }
+    }
+
+    loadNews();
+    loadStats();
+    return () => {
+      cancelled = true;
+    };
+  }, [newsDlgOpen, symbol]);
 
   const startAutoTune = useCallback(async () => {
     if (!symbol) return;
@@ -1158,22 +1268,22 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
           pinch: true,
         },
         layout: {
-          background: { color: '#0d0d0d' },
-          textColor: 'rgba(255,255,255,0.75)',
+          background: { color: chartBg },
+          textColor: chartText,
         },
         grid: {
-          vertLines: { color: 'rgba(255,255,255,0.06)' },
-          horzLines: { color: 'rgba(255,255,255,0.06)' },
+          vertLines: { color: gridColor },
+          horzLines: { color: gridColor },
         },
         crosshair: {
-          vertLine: { color: 'rgba(255,255,255,0.25)', width: 1 },
-          horzLine: { color: 'rgba(255,255,255,0.25)', width: 1 },
+          vertLine: { color: crosshairColor, width: 1 },
+          horzLine: { color: crosshairColor, width: 1 },
         },
         rightPriceScale: {
-          borderColor: 'rgba(255,255,255,0.08)',
+          borderColor,
         },
         timeScale: {
-          borderColor: 'rgba(255,255,255,0.08)',
+          borderColor,
         },
       });
 
@@ -1234,7 +1344,42 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
       cleanup?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [chartBg, chartText, crosshairColor, gridColor, borderColor]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const isIntraday = freq !== '1d';
+    const pad2 = (v: number) => String(v).padStart(2, '0');
+    const formatTick = (time: any) => {
+      if (typeof time === 'number') {
+        const d = new Date(time * 1000);
+        if (!Number.isFinite(d.getTime())) return '';
+        const date = `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`;
+        const clock = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+        return isIntraday
+          ? `${date} ${clock}`
+          : `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      }
+      if (time && typeof time === 'object') {
+        const y = (time as any).year;
+        const m = (time as any).month;
+        const day = (time as any).day;
+        if (y && m && day) return `${y}-${pad2(m)}-${pad2(day)}`;
+      }
+      return '';
+    };
+
+    chart.applyOptions({
+      timeScale: {
+        borderColor,
+        timeVisible: isIntraday,
+        secondsVisible: false,
+        tickMarkFormatter: formatTick,
+      },
+    });
+  }, [chartsEpoch, freq, borderColor]);
 
   // Init / destroy RSI chart
   useEffect(() => {
@@ -1253,7 +1398,15 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
         }
         return;
       }
-      if (!rsiContainerRef.current || rsiChartRef.current) return;
+      if (!rsiContainerRef.current) return;
+      if (rsiChartRef.current) {
+        try {
+          rsiChartRef.current.remove();
+        } catch (e) {}
+        rsiChartRef.current = null;
+        rsiSeriesRef.current = null;
+        rsiLinesAddedRef.current = false;
+      }
 
       const { createChart, LineSeries } = await import('lightweight-charts');
 
@@ -1262,19 +1415,19 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
         handleScroll: { mouseWheel: true, pressedMouseMove: true },
         handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true } },
         layout: {
-          background: { color: '#0d0d0d' },
-          textColor: 'rgba(255,255,255,0.65)',
+          background: { color: chartBg },
+          textColor: chartTextMuted,
         },
         grid: {
-          vertLines: { color: 'rgba(255,255,255,0.06)' },
-          horzLines: { color: 'rgba(255,255,255,0.06)' },
+          vertLines: { color: gridColor },
+          horzLines: { color: gridColor },
         },
         crosshair: {
-          vertLine: { color: 'rgba(255,255,255,0.20)', width: 1 },
-          horzLine: { color: 'rgba(255,255,255,0.20)', width: 1 },
+          vertLine: { color: crosshairColor, width: 1 },
+          horzLine: { color: crosshairColor, width: 1 },
         },
-        rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
-        timeScale: { visible: false, borderColor: 'rgba(255,255,255,0.08)' },
+        rightPriceScale: { borderColor },
+        timeScale: { visible: false, borderColor },
       });
 
       const line = chart.addSeries(LineSeries, {
@@ -1296,7 +1449,7 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
 
     initRSI();
     return () => cleanup?.();
-  }, [showRSI]);
+  }, [showRSI, chartBg, chartTextMuted, gridColor, crosshairColor, borderColor]);
 
   // Init / destroy MACD chart
   useEffect(() => {
@@ -1316,7 +1469,16 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
         }
         return;
       }
-      if (!macdContainerRef.current || macdChartRef.current) return;
+      if (!macdContainerRef.current) return;
+      if (macdChartRef.current) {
+        try {
+          macdChartRef.current.remove();
+        } catch (e) {}
+        macdChartRef.current = null;
+        macdLineSeriesRef.current = null;
+        macdSignalSeriesRef.current = null;
+        macdHistSeriesRef.current = null;
+      }
 
       const { createChart, LineSeries, HistogramSeries } = await import('lightweight-charts');
 
@@ -1325,19 +1487,19 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
         handleScroll: { mouseWheel: true, pressedMouseMove: true },
         handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true } },
         layout: {
-          background: { color: '#0d0d0d' },
-          textColor: 'rgba(255,255,255,0.65)',
+          background: { color: chartBg },
+          textColor: chartTextMuted,
         },
         grid: {
-          vertLines: { color: 'rgba(255,255,255,0.06)' },
-          horzLines: { color: 'rgba(255,255,255,0.06)' },
+          vertLines: { color: gridColor },
+          horzLines: { color: gridColor },
         },
         crosshair: {
-          vertLine: { color: 'rgba(255,255,255,0.20)', width: 1 },
-          horzLine: { color: 'rgba(255,255,255,0.20)', width: 1 },
+          vertLine: { color: crosshairColor, width: 1 },
+          horzLine: { color: crosshairColor, width: 1 },
         },
-        rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
-        timeScale: { visible: false, borderColor: 'rgba(255,255,255,0.08)' },
+        rightPriceScale: { borderColor },
+        timeScale: { visible: false, borderColor },
       });
 
       const hist = chart.addSeries(HistogramSeries, {
@@ -1373,7 +1535,7 @@ export default function AshareKlinePanel({ symbol, title }: { symbol: string; ti
 
     initMACD();
     return () => cleanup?.();
-  }, [showMACD]);
+  }, [showMACD, chartBg, chartTextMuted, gridColor, crosshairColor, borderColor]);
 
   // Sync visible time range across charts (TradingView-like feel)
   useEffect(() => {
@@ -1861,10 +2023,10 @@ useEffect(() => {
       </div>
 
       {/* Regime + external + params */}
-      <div className="px-5 pb-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div className="rounded-xl bg-white/5 border border-white/5 p-4">
+      <div className="px-5 pb-3 grid grid-cols-1 lg:grid-cols-[0.8fr_1.4fr_1fr] gap-3 items-stretch">
+        <div className="rounded-xl bg-white/5 border border-white/5 p-4 h-full">
           <div className="flex items-center justify-between">
-            <div className="text-xs text-gray-400">{t('ashare.panel.regimeDecision')}</div>
+            <div className="text-sm text-gray-300">{t('ashare.panel.regimeDecision')}</div>
             {decision && (
               <span
                 className={cn(
@@ -1880,10 +2042,10 @@ useEffect(() => {
               </span>
             )}
           </div>
-          <div className="mt-2 text-sm text-gray-100">
+          <div className="mt-2 text-base text-gray-100">
             {decisionLoading ? t('common.loading') : decisionError ? `${t('common.error')}: ${decisionError}` : decision?.strategy ?? '--'}
           </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-400">
+          <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-400">
             <div>{t('ashare.panel.action')}</div>
             <div className="text-gray-100">
               {decision?.action ?? '--'}
@@ -1916,8 +2078,8 @@ useEffect(() => {
               {decisionMeta ? renderNewsSourceBadge(decisionMeta.news_source) : null}
             </div>
           </div>
-          <div className="mt-3 text-xs text-gray-400">{t('ashare.panel.reasons')}</div>
-          <div className="mt-1 space-y-1 text-xs text-gray-300">
+          <div className="mt-3 text-sm text-gray-400">{t('ashare.panel.reasons')}</div>
+          <div className="mt-1 space-y-1 text-sm text-gray-300">
             {(decision?.reasons ?? []).slice(0, showAllReasons ? undefined : 3).map((r, i) => (
               <div key={`${r}-${i}`}>- {translateReason(r)}</div>
             ))}
@@ -1928,7 +2090,7 @@ useEffect(() => {
               type="button"
               variant="ghost"
               size="sm"
-              className="mt-2 h-7 px-2 text-[10px] text-gray-300"
+              className="mt-2 h-7 px-2 text-xs text-gray-300"
               onClick={() => setShowAllReasons((v) => !v)}
             >
               {showAllReasons ? t('common.collapse') : t('common.expandMore')}
@@ -1936,9 +2098,23 @@ useEffect(() => {
           )}
         </div>
 
-        <div className="rounded-xl bg-white/5 border border-white/5 p-4">
-          <div className="text-xs text-gray-400">{t('ashare.panel.externalSignals')}</div>
-          <div className="mt-2 text-xs text-gray-300">
+        <div
+          className="rounded-xl bg-white/5 border border-white/5 p-4 h-full grid grid-rows-[auto_auto_auto_1fr] gap-2 overflow-hidden"
+          style={showParams && paramPanelHeight ? { height: paramPanelHeight } : undefined}
+        >
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-300">{t('ashare.panel.externalSignals')}</div>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setNewsDlgOpen(true)}
+            >
+              新闻
+            </Button>
+          </div>
+          <div className="text-sm text-gray-300">
             {decision?.external_signals?.news ? (
               <div>
                 {t('ashare.panel.newsSentiment')}: {decision.external_signals.news.score.toFixed(2)} / {t('ashare.panel.confidence')}{' '}
@@ -1948,7 +2124,7 @@ useEffect(() => {
               <div>{t('ashare.panel.newsFallback')}</div>
             )}
           </div>
-          <div className="mt-2 text-xs text-gray-300">
+          <div className="text-sm text-gray-300">
             {decision?.external_signals?.realtime ? (
               <div>
                 {t('ashare.panel.realtimeSurprise')}: {t('ashare.panel.vol')} {decision.external_signals.realtime.volSurprise.toFixed(2)} · {t('ashare.panel.amt')}{' '}
@@ -1958,21 +2134,75 @@ useEffect(() => {
               <div>{t('ashare.panel.realtimeFallback')}</div>
             )}
           </div>
-          <div className="mt-3">
-            <ExternalNewsTicker symbol={symbol} />
+          <div className="min-h-0">
+            <ExternalNewsTicker symbol={symbol} fill={showParams} listClassName={!showParams ? 'max-h-56' : undefined} />
           </div>
         </div>
 
-        <div className="rounded-xl bg-white/5 border border-white/5 p-4">
+        <Dialog open={newsDlgOpen} onOpenChange={setNewsDlgOpen}>
+          <DialogContent className="!w-[80vw] !max-w-[80vw] !h-[80vh] !max-h-[80vh] p-0 border border-white/10 bg-[#0d0d0d] text-white overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle>新闻</DialogTitle>
+            </DialogHeader>
+            <div className="px-5 pt-2 flex items-center justify-between text-xs text-gray-400">
+              <div>翻译次数: {translateCount == null ? '--' : translateCount}</div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[10px] text-gray-300"
+                onClick={() => setNewsDlgOpen(false)}
+              >
+                关闭
+              </Button>
+            </div>
+            <div className="mt-3 px-5 pb-5 flex-1 min-h-0 overflow-auto">
+              {newsLoading && <div className="text-sm text-gray-400">加载中...</div>}
+              {!newsLoading && newsError && <div className="text-sm text-yellow-400">{newsError}</div>}
+              {!newsLoading && !newsError && newsItems.length === 0 && <div className="text-sm text-gray-400">暂无新闻</div>}
+              {!newsLoading && !newsError && newsItems.length > 0 && (
+                <div className="space-y-3">
+                  {newsItems.map((it) => {
+                    const showTitle = it.title_en ?? it.title;
+                    return (
+                      <div key={`${it.publishedAt}-${it.title}`} className="rounded-lg border border-white/10 bg-white/5 p-3">
+                        <div className="text-sm text-gray-100">
+                          {it.url ? (
+                            <a href={it.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                              {showTitle}
+                            </a>
+                          ) : (
+                            <span>{showTitle}</span>
+                          )}
+                        </div>
+                        <div className="mt-2 text-[11px] text-gray-400 flex flex-wrap items-center gap-2">
+                          <span>来源: {it.source || '--'}</span>
+                          <span>时间: {fmtDateTime(it.publishedAt)}</span>
+                          {it.url && (
+                            <a href={it.url} target="_blank" rel="noopener noreferrer" className="text-gray-300 hover:underline">
+                              访问链接
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <div className="rounded-xl bg-white/5 border border-white/5 p-4 h-full" ref={paramPanelRef}>
           <div className="flex items-center justify-between">
-            <div className="text-xs text-gray-400">{t('ashare.panel.configPanel')}</div>
+            <div className="text-sm text-gray-300">{t('ashare.panel.configPanel')}</div>
             <div className="flex items-center gap-2">
               {refreshInterval === 'manual' && (
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-7 px-2 text-[10px] text-gray-300"
+                  className="h-7 px-2 text-xs text-gray-300"
                   onClick={refreshDecision}
                 >
                   {t('common.refresh')}
@@ -1982,12 +2212,12 @@ useEffect(() => {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 text-[10px] text-gray-300"
+                className="h-7 px-2 text-xs text-gray-300"
                 onClick={() => setShowParams((v) => !v)}
               >
                 {showParams ? t('common.collapse') : t('common.expand')}
               </Button>
-              <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-[10px]" onClick={() => applyConfig()} disabled={configLoading}>
+              <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => applyConfig()} disabled={configLoading}>
                 {t('common.apply')}
               </Button>
             </div>
@@ -1999,7 +2229,7 @@ useEffect(() => {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className={cn('h-7 px-2 text-[10px]', refreshInterval === opt ? 'bg-white/10 text-white' : 'text-gray-300')}
+                className={cn('h-7 px-2 text-xs', refreshInterval === opt ? 'bg-white/10 text-white' : 'text-gray-300')}
                 onClick={() => setRefreshInterval(opt)}
               >
                 {opt === 'manual' ? t('ashare.panel.refreshManual') : t('ashare.panel.refreshEvery', { sec: opt.replace('s', '') })}
@@ -2007,28 +2237,28 @@ useEffect(() => {
             ))}
           </div>
           {showParams && configDraft && (
-            <div className="mt-3 space-y-3 text-xs">
+            <div className="mt-3 space-y-3 text-sm">
               <div>
                 <div className="text-gray-400">{t('ashare.panel.weights')}</div>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.weightTrend')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.weightTrend')}</div>
                     <Input type="number" step="0.01" value={configDraft.weights.w_trend} onChange={(e) => updateConfigField('weights', 'w_trend', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.weightRange')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.weightRange')}</div>
                     <Input type="number" step="0.01" value={configDraft.weights.w_range} onChange={(e) => updateConfigField('weights', 'w_range', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.weightPanic')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.weightPanic')}</div>
                     <Input type="number" step="0.01" value={configDraft.weights.w_panic} onChange={(e) => updateConfigField('weights', 'w_panic', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.weightNews')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.weightNews')}</div>
                     <Input type="number" step="0.01" value={configDraft.weights.w_news} onChange={(e) => updateConfigField('weights', 'w_news', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.weightRealtime')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.weightRealtime')}</div>
                     <Input type="number" step="0.01" value={configDraft.weights.w_realtime} onChange={(e) => updateConfigField('weights', 'w_realtime', Number(e.target.value))} />
                   </div>
                 </div>
@@ -2037,31 +2267,31 @@ useEffect(() => {
                 <div className="text-gray-400">{t('ashare.panel.thresholds')}</div>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.trendScoreThreshold')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.trendScoreThreshold')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.trendScoreThreshold} onChange={(e) => updateConfigField('thresholds', 'trendScoreThreshold', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.panicVolRatio')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.panicVolRatio')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.panicVolRatio} onChange={(e) => updateConfigField('thresholds', 'panicVolRatio', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.panicDrawdown')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.panicDrawdown')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.panicDrawdown} onChange={(e) => updateConfigField('thresholds', 'panicDrawdown', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.volRatioLow')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.volRatioLow')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.volRatioLow} onChange={(e) => updateConfigField('thresholds', 'volRatioLow', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.volRatioHigh')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.volRatioHigh')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.volRatioHigh} onChange={(e) => updateConfigField('thresholds', 'volRatioHigh', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.minLiquidityAmountRatio')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.minLiquidityAmountRatio')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.minLiquidityAmountRatio} onChange={(e) => updateConfigField('thresholds', 'minLiquidityAmountRatio', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.minLiquidityVolumeRatio')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.minLiquidityVolumeRatio')}</div>
                     <Input
                       type="number"
                       step="0.01"
@@ -2070,23 +2300,23 @@ useEffect(() => {
                     />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.realtimeVolSurprise')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.realtimeVolSurprise')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.realtimeVolSurprise} onChange={(e) => updateConfigField('thresholds', 'realtimeVolSurprise', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.realtimeAmtSurprise')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.realtimeAmtSurprise')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.realtimeAmtSurprise} onChange={(e) => updateConfigField('thresholds', 'realtimeAmtSurprise', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.newsPanicThreshold')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.newsPanicThreshold')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.newsPanicThreshold} onChange={(e) => updateConfigField('thresholds', 'newsPanicThreshold', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.newsTrendThreshold')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.newsTrendThreshold')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.newsTrendThreshold} onChange={(e) => updateConfigField('thresholds', 'newsTrendThreshold', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.hysteresisThreshold')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.hysteresisThreshold')}</div>
                     <Input type="number" step="0.01" value={configDraft.thresholds.hysteresisThreshold} onChange={(e) => updateConfigField('thresholds', 'hysteresisThreshold', Number(e.target.value))} />
                   </div>
                 </div>
@@ -2095,15 +2325,15 @@ useEffect(() => {
                 <div className="text-gray-400">{t('ashare.panel.positionCaps')}</div>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.positionTrend')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.positionTrend')}</div>
                     <Input type="number" step="0.01" value={configDraft.positionCaps.trend} onChange={(e) => updateConfigField('positionCaps', 'trend', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.positionRange')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.positionRange')}</div>
                     <Input type="number" step="0.01" value={configDraft.positionCaps.range} onChange={(e) => updateConfigField('positionCaps', 'range', Number(e.target.value))} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-gray-500">{t('ashare.panel.positionPanic')}</div>
+                    <div className="text-xs text-gray-500">{t('ashare.panel.positionPanic')}</div>
                     <Input type="number" step="0.01" value={configDraft.positionCaps.panic} onChange={(e) => updateConfigField('positionCaps', 'panic', Number(e.target.value))} />
                   </div>
                 </div>
@@ -2144,6 +2374,28 @@ useEffect(() => {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+          {!showParams && configDraft && (
+            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-gray-300">
+              <div className="text-gray-400">{t('ashare.panel.weightTrend')}</div>
+              <div className="text-gray-100">{configDraft.weights.w_trend.toFixed(2)}</div>
+              <div className="text-gray-400">{t('ashare.panel.weightRange')}</div>
+              <div className="text-gray-100">{configDraft.weights.w_range.toFixed(2)}</div>
+              <div className="text-gray-400">{t('ashare.panel.weightPanic')}</div>
+              <div className="text-gray-100">{configDraft.weights.w_panic.toFixed(2)}</div>
+              <div className="text-gray-400">{t('ashare.panel.weightNews')}</div>
+              <div className="text-gray-100">{configDraft.weights.w_news.toFixed(2)}</div>
+              <div className="text-gray-400">{t('ashare.panel.weightRealtime')}</div>
+              <div className="text-gray-100">{configDraft.weights.w_realtime.toFixed(2)}</div>
+              <div className="text-gray-400">{t('ashare.panel.newsPanicThreshold')}</div>
+              <div className="text-gray-100">{configDraft.thresholds.newsPanicThreshold.toFixed(2)}</div>
+              <div className="text-gray-400">{t('ashare.panel.newsTrendThreshold')}</div>
+              <div className="text-gray-100">{configDraft.thresholds.newsTrendThreshold.toFixed(2)}</div>
+              <div className="text-gray-400">{t('ashare.panel.realtimeVolSurprise')}</div>
+              <div className="text-gray-100">{configDraft.thresholds.realtimeVolSurprise.toFixed(2)}</div>
+              <div className="text-gray-400">{t('ashare.panel.realtimeAmtSurprise')}</div>
+              <div className="text-gray-100">{configDraft.thresholds.realtimeAmtSurprise.toFixed(2)}</div>
             </div>
           )}
           {!configDraft && <div className="mt-3 text-xs text-gray-500">{t('common.loading')}</div>}

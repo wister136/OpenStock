@@ -22,7 +22,7 @@ export default async function RootLayout({
   const initialLang: Lang = stored === "zh" || stored === "en" ? stored : DEFAULT_LANG;
 
   return (
-    <html lang={initialLang} className="dark">
+    <html lang={initialLang} suppressHydrationWarning>
       <body className="antialiased">
         <Providers initialLang={initialLang}>{children}</Providers>
         <Toaster />

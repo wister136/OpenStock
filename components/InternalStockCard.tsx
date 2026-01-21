@@ -36,7 +36,7 @@ export default async function InternalStockCard({ symbol, label, name }: Props) 
   const tradingViewTitle = await tServer('btn.openTradingView');
 
   return (
-    <div className="group relative rounded-2xl bg-[#111] border border-white/5 shadow-sm overflow-hidden">
+    <div className="group relative rounded-2xl bg-gray-800 border border-white/5 shadow-sm overflow-hidden">
       <Link
         href={`/stocks/${encodeURIComponent(symbol)}`}
         aria-label={`${label} ${detailLabel}`}

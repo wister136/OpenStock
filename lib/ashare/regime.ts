@@ -85,11 +85,11 @@ export function detectRegime(inputs: RegimeInputs): {
   const windowMinutes = Number(process.env.NEWS_ROLLING_WINDOW_MINUTES ?? 120);
   const effectiveWindowMinutes = Number.isFinite(windowMinutes) ? windowMinutes : 120;
   if (mockRatio != null && mockRatio > 0) {
-    reasons.push('News source includes MOCK (dev mode)');
+    reasons.push(`News source includes MOCK (mockRatio=${mockRatio.toFixed(2)})`);
   }
   if (mockRatio != null && mockRatio >= 0.8) {
     wNews = wNews * 0.1;
-    reasons.push('News is MOCK -> weight reduced (dev mode)');
+    reasons.push(`News is MOCK -> weight reduced (mockRatio=${mockRatio.toFixed(2)})`);
   }
   if (news) {
     if (news.sourceType === 'items_rolling') {

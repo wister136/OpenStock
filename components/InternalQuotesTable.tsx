@@ -22,7 +22,7 @@ export default async function InternalQuotesTable({ rows }: { rows: Row[] }) {
   const tableChgPercent = await tServer('table.chgPercent');
 
   return (
-    <div className="w-full overflow-x-auto rounded-2xl border border-white/5 bg-[#0f0f0f]">
+    <div className="w-full overflow-x-auto rounded-2xl border border-white/5 bg-gray-800">
       <table className="min-w-full text-sm">
         <thead className="text-xs text-gray-400 border-b border-white/5">
           <tr>

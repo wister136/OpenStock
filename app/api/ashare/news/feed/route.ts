@@ -22,7 +22,9 @@ export async function GET(req: Request) {
       serverTime: Date.now(),
       items: items.map((it: any) => ({
         title: it.title,
+        title_en: it.title_en,
         source: it.source,
+        url: it.url,
         publishedAt: it.publishedAt,
         sentimentScore: it.sentimentScore,
         confidence: it.confidence,
