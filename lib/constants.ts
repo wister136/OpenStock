@@ -89,6 +89,7 @@ export const MARKET_OVERVIEW_WIDGET_CONFIG = {
         { s: 'SZSE:002317', d: '众生药业 002317' },
         { s: 'SSE:600226', d: '亨通股份 600226' },
         { s: 'SSE:603516', d: '淳中科技 603516' },
+        { s: 'SZSE:000933', d: '神火股份 000933' }
       ],
     },
   ],
@@ -158,6 +159,7 @@ export const MARKET_DATA_WIDGET_CONFIG = {
         { name: 'SZSE:002317', displayName: '002317' },
         { name: 'SSE:600226', displayName: '600226' },
         { name: 'SSE:603516', displayName: '603516' },
+        { name: 'SZSE:000933', displayName: '000933' }
       ],
     },
   ],
@@ -168,6 +170,7 @@ export const HOME_WATCHLIST = [
   { symbol: 'SZSE:002317', label: '002317', name: '众生药业' },
   { symbol: 'SSE:600226', label: '600226', name: '亨通股份' },
   { symbol: 'SSE:603516', label: '603516', name: '淳中科技' },
+  { symbol: 'SZSE:000933', label: '000933', name: '神火股份' },
 ];
 
 export const SYMBOL_INFO_WIDGET_CONFIG = (symbol: string) => ({
