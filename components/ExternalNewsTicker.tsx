@@ -12,6 +12,7 @@ type EventItem = {
   source: string;
   isMock?: boolean;
   title: string;
+  title_zh?: string;
   subtitle?: string;
   sentimentScore?: number;
   confidence?: number;
@@ -48,6 +49,8 @@ export default function ExternalNewsTicker({
   const [error, setError] = useState(false);
   const lastMaxTsRef = useRef<number>(0);
   const [newSet, setNewSet] = useState<Set<string>>(new Set());
+
+  const hasChinese = (text: string) => /[\u4e00-\u9fff]/.test(text || '');
 
   useEffect(() => {
     let cancelled = false;
@@ -104,9 +107,9 @@ export default function ExternalNewsTicker({
 
   const freshnessLabel = (ts: number) => {
     const ageMs = Math.max(0, serverTime - ts);
-    if (ageMs < 10 * 60 * 1000) return { label: t('ashare.news.fresh'), className: 'text-emerald-300' };
-    if (ageMs < 60 * 60 * 1000) return { label: t('ashare.news.warm'), className: 'text-yellow-300' };
-    return { label: t('ashare.news.stale'), className: 'text-orange-300' };
+    if (ageMs < 10 * 60 * 1000) return { label: t('ashare.news.fresh'), className: 'text-emerald-700 dark:text-emerald-300' };
+    if (ageMs < 60 * 60 * 1000) return { label: t('ashare.news.warm'), className: 'text-yellow-700 dark:text-yellow-300' };
+    return { label: t('ashare.news.stale'), className: 'text-orange-700 dark:text-orange-300' };
   };
 
   const formatL2Reason = (reason?: string) => {
@@ -145,62 +148,64 @@ export default function ExternalNewsTicker({
   return (
     <div className={cn('rounded-xl bg-white/5 border border-white/5 p-4 flex flex-col', fill && 'h-full min-h-0', className)}>
       <div className="flex items-center justify-between">
-        <div className="text-sm text-gray-400">{t('ashare.news.title')}</div>
-        <div className="text-xs text-gray-500">{t('ashare.news.refreshEvery', { sec: pollSec })}</div>
+        <div className="text-base text-slate-900 dark:text-slate-100">{t('ashare.news.title')}</div>
+        <div className="text-sm text-slate-700 dark:text-slate-300">{t('ashare.news.refreshEvery', { sec: pollSec })}</div>
       </div>
 
       {error && <div className="mt-3 text-sm text-yellow-400">{t('ashare.news.unavailable')}</div>}
-      {!error && !isDelayed && <div className="mt-2 text-[10px] text-emerald-300">{t('ashare.events.live')}</div>}
-      {!error && isDelayed && <div className="mt-2 text-[10px] text-orange-300">{t('ashare.events.delayed')}</div>}
+      {!error && !isDelayed && <div className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">{t('ashare.events.live')}</div>}
+      {!error && isDelayed && <div className="mt-2 text-sm text-orange-700 dark:text-orange-300">{t('ashare.events.delayed')}</div>}
 
       {!error && (
         <div className={listCls}>
-          {sorted.length === 0 && <div className="text-xs text-gray-500">{t('ashare.news.empty')}</div>}
+          {sorted.length === 0 && <div className="text-sm text-slate-600 dark:text-slate-300">{t('ashare.news.empty')}</div>}
           {sorted.map((it) => {
             const freshness = freshnessLabel(it.ts);
             const isNew = newSet.has(it.id);
-            const showTitle = it.title || '--';
+            const rawTitle = (it.title || '').trim();
+            const zhTitle = (it.title_zh || '').trim();
+            const showTitle = hasChinese(rawTitle) ? rawTitle : hasChinese(zhTitle) ? zhTitle : rawTitle || '--';
             const typeBadge =
               it.type === 'news'
-                ? { label: t('ashare.events.type.news'), cls: 'text-sky-300 border-sky-400/40 bg-sky-500/10' }
+                ? { label: t('ashare.events.type.news'), cls: 'text-sky-700 dark:text-sky-300 border-sky-400/40 bg-sky-500/10' }
                 : it.type === 'market'
-                  ? { label: t('ashare.events.type.market'), cls: 'text-amber-300 border-amber-400/40 bg-amber-500/10' }
-                  : { label: t('ashare.events.type.system'), cls: 'text-gray-300 border-white/10 bg-white/5' };
+                  ? { label: t('ashare.events.type.market'), cls: 'text-amber-700 dark:text-amber-300 border-amber-400/40 bg-amber-500/10' }
+                  : { label: t('ashare.events.type.system'), cls: 'text-slate-700 dark:text-slate-300 border-white/10 bg-white/5' };
             const sentimentTone =
               Number.isFinite(it.sentimentScore) && it.sentimentScore != null
                 ? it.sentimentScore > 0.15
-                  ? 'text-emerald-200'
+                  ? 'text-emerald-700 dark:text-emerald-200'
                   : it.sentimentScore < -0.15
-                    ? 'text-rose-200'
-                    : 'text-gray-100'
-                : 'text-gray-100';
+                    ? 'text-rose-700 dark:text-rose-200'
+                    : 'text-slate-800 dark:text-gray-100'
+                : 'text-slate-800 dark:text-gray-100';
             const l2Note = it.type === 'news' ? formatL2Reason(it.l2Reason) : null;
             return (
-              <div key={it.id} className="text-sm text-gray-300">
+              <div key={it.id} className="text-base text-slate-800 dark:text-slate-200">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500">{formatTime(it.ts)}</span>
-                  <span className={cn('text-[10px] px-1.5 py-0.5 rounded border', typeBadge.cls)}>{typeBadge.label}</span>
-                  <span className="text-xs text-gray-400">{it.source}</span>
+                  <span className="text-sm text-slate-600 dark:text-slate-300">{formatTime(it.ts)}</span>
+                  <span className={cn('text-xs px-1.5 py-0.5 rounded border', typeBadge.cls)}>{typeBadge.label}</span>
+                  <span className="text-sm text-slate-600 dark:text-slate-300">{it.source}</span>
                   {it.isMock && (
-                    <span className="text-[10px] text-amber-300 border border-amber-400/40 rounded px-1">[MOCK]</span>
+                    <span className="text-xs text-amber-700 dark:text-amber-300 border border-amber-400/40 rounded px-1">[MOCK]</span>
                   )}
-                  {isNew && <span className="text-[10px] text-red-300 border border-red-400/40 rounded px-1">{t('ashare.news.new')}</span>}
-                  <span className={cn('text-[10px]', freshness.className)}>
+                  {isNew && <span className="text-xs text-red-700 dark:text-red-300 border border-red-400/40 rounded px-1">{t('ashare.news.new')}</span>}
+                  <span className={cn('text-xs', freshness.className)}>
                     {freshness.label} · {formatAge(it.ts)}
                   </span>
                 </div>
-                <div className={cn('mt-1 text-sm', sentimentTone)}>
+                <div className={cn('mt-1 text-base', sentimentTone)}>
                   {it.url ? (
-                    <a href={it.url} target="_blank" rel="noopener noreferrer" className="text-gray-100 hover:underline">
+                    <a href={it.url} target="_blank" rel="noopener noreferrer" className="text-slate-900 dark:text-slate-100 hover:underline">
                       {showTitle}
                     </a>
                   ) : (
                     <span>{showTitle}</span>
                   )}
                 </div>
-                {it.subtitle && <div className="mt-1 text-xs text-gray-400">{it.subtitle}</div>}
+                {it.subtitle && <div className="mt-1 text-sm text-slate-700 dark:text-slate-300">{it.subtitle}</div>}
                 {it.type === 'news' && (
-                  <div className="mt-1 text-xs text-gray-500">
+                  <div className="mt-1 text-sm text-slate-700 dark:text-slate-300">
                     {t('ashare.news.sentiment')}: {Number.isFinite(it.sentimentScore) ? it.sentimentScore?.toFixed(2) : '--'} ·{' '}
                     {t('ashare.events.confidence')}: {Number.isFinite(it.confidence) ? it.confidence?.toFixed(2) : '--'}
                     {l2Note && <> · {l2Note}</>}

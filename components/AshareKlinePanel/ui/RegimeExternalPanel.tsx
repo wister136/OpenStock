@@ -6,11 +6,18 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import ExternalNewsTicker from '@/components/ExternalNewsTicker';
+import { tActionLabel, tRegimeLabel, tStrategyLabel } from '@/lib/i18n/strategyLabels';
 import { cn } from '@/lib/utils';
 
 import type { DecisionMeta, DecisionPayload, NewsFeedItem, RegimeConfig } from '../types';
 import { translateReason as translateReasonText } from '../utils/translateReason';
 import { fmtAge, fmtDateTime, fmtPct, fmtTs } from '../utils/format';
+
+// Detect whether a string contains CJK (Chinese) characters
+function hasChinese(text: string) {
+  return /[\u4e00-\u9fff]/.test(text || '');
+}
+
 
 type TranslateFn = (key: string, params?: Record<string, any>) => string;
 type RefreshInterval = '3s' | '5s' | '10s' | 'manual';
@@ -153,16 +160,20 @@ export default function RegimeExternalPanel({
                     : 'text-blue-300 border-blue-400/30 bg-blue-500/10'
               )}
             >
-              {decision.regime}
+              {tRegimeLabel(t, decision.regime)}
             </span>
           )}
         </div>
         <div className="mt-2 text-base text-gray-100">
-          {decisionLoading ? t('common.loading') : decisionError ? `${t('common.error')}: ${decisionError}` : decision?.strategy ?? '--'}
+          {decisionLoading
+            ? t('common.loading')
+            : decisionError
+              ? `${t('common.error')}: ${decisionError}`
+              : tStrategyLabel(t, decision?.strategy)}
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-400">
           <div>{t('ashare.panel.action')}</div>
-          <div className="text-gray-100">{decision?.action ?? '--'}</div>
+          <div className="text-gray-100">{tActionLabel(t, decision?.action)}</div>
           <div>{t('ashare.panel.regimeConfidence')}</div>
           <div className="text-gray-100">{decision ? fmtPct(decision.regime_confidence) : '--'}</div>
           <div>{t('ashare.panel.positionCap')}</div>
@@ -268,11 +279,10 @@ export default function RegimeExternalPanel({
             {!newsLoading && !newsError && newsItems.length > 0 && (
               <div className="space-y-3">
                 {newsItems.map((it) => {
-                  const hasChinese = (s: string) => /[\u4e00-\u9fff]/.test(s);
-                  const rawTitle = it.title || '';
-                  const titleZh = it.title_en;
-                  const showTitle = hasChinese(rawTitle) ? rawTitle : titleZh ?? rawTitle;
-                  const subTitle = !hasChinese(rawTitle) && titleZh ? rawTitle : null;
+                  const rawTitle = (it.title || '').trim();
+                  const translated = (it.title_zh || (it as any).title_cn || it.title_en || '').trim();
+                  const showTitle = hasChinese(rawTitle) ? rawTitle : hasChinese(translated) ? translated : rawTitle;
+
                   return (
                     <div key={`${it.publishedAt}-${it.title}`} className="rounded-lg border border-white/10 bg-white/5 p-3">
                       <div className="text-sm text-gray-100">
@@ -284,7 +294,6 @@ export default function RegimeExternalPanel({
                           <span>{showTitle}</span>
                         )}
                       </div>
-                      {subTitle && <div className="mt-1 text-xs text-gray-400">{subTitle}</div>}
                       <div className="mt-2 text-[11px] text-gray-400 flex flex-wrap items-center gap-2">
                         <span>来源: {it.source || '--'}</span>
                         <span>时间: {fmtDateTime(it.publishedAt)}</span>

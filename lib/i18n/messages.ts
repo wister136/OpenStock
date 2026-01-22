@@ -44,6 +44,16 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     'action.buy': 'Buy',
     'action.sell': 'Sell',
     'action.hold': 'Hold',
+    'ashare.strategy.meanReversion': 'Mean reversion',
+    'ashare.strategy.tsmom': 'Trend momentum',
+    'ashare.strategy.riskOff': 'Risk off',
+    'ashare.strategy.trendFollow': 'Trend follow',
+    'ashare.strategy.breakout': 'Breakout',
+    'ashare.strategy.range': 'Range',
+    'ashare.strategy.none': 'None',
+    'ashare.regime.trend': 'Trend',
+    'ashare.regime.range': 'Range',
+    'ashare.regime.panic': 'Panic',
 
     // Watchlist
     'watchlist.add': 'Add to watchlist',
@@ -755,6 +765,16 @@ export const MESSAGES: Record<Lang, Record<string, string>> = {
     'action.buy': '买入',
     'action.sell': '卖出',
     'action.hold': '观望',
+    'ashare.strategy.meanReversion': '均值回归',
+    'ashare.strategy.tsmom': '趋势动量',
+    'ashare.strategy.riskOff': '风险规避',
+    'ashare.strategy.trendFollow': '趋势跟随',
+    'ashare.strategy.breakout': '突破策略',
+    'ashare.strategy.range': '区间震荡',
+    'ashare.strategy.none': '无策略',
+    'ashare.regime.trend': '趋势',
+    'ashare.regime.range': '区间',
+    'ashare.regime.panic': '恐慌',
 
     // Watchlist
     'watchlist.add': '加入自选',

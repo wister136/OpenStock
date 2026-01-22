@@ -10,7 +10,7 @@ import NewsSentimentSnapshot from '@/database/models/NewsSentimentSnapshot';
 import { computeRollingSentiment } from '@/lib/ashare/news_aggregation';
 import { normalizeSymbol } from '@/lib/ashare/symbol';
 import { sha1 } from '@/lib/hash';
-import { translateTitle } from '@/lib/translateTitle';
+import { translateTitle, translateTitleToZh } from '@/lib/translateTitle';
 
 function normalizeImpactScore(value: unknown): number | undefined {
   if (value == null) return undefined;
@@ -86,6 +86,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, status: 'skipped', reason: 'duplicate', symbol, serverTime });
     }
     const title_en = await translateTitle(title);
+    const title_zh = await translateTitleToZh(title);
     const marketLinkWindowRaw = Number(process.env.NEWS_MARKET_LINK_WINDOW_MINUTES ?? 30);
     const marketLinkWindow = Number.isFinite(marketLinkWindowRaw) ? marketLinkWindowRaw : 30;
     const marketLinked =
@@ -113,6 +114,7 @@ export async function POST(req: Request) {
           publishedAt,
           title,
           title_en,
+          title_zh,
           content,
           summary,
           eventType,
@@ -146,6 +148,7 @@ export async function POST(req: Request) {
           score: impactScore,
           title,
           title_en,
+          title_zh,
           publishedAt,
           summary,
           eventType,

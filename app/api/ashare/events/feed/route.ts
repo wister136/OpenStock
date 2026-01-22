@@ -15,6 +15,7 @@ type EventCardDTO = {
   source: string;
   isMock: boolean;
   title: string;
+  title_zh?: string;
   subtitle?: string;
   sentimentScore?: number;
   confidence?: number;
@@ -97,6 +98,7 @@ async function upsertNewsEvents(symbol: string, limit: number): Promise<void> {
             score: item.impactScore,
             title: item.title,
             title_en: item.title_en,
+            title_zh: item.title_zh,
             publishedAt: item.publishedAt,
             summary: item.summary,
             eventType: item.eventType,
@@ -228,8 +230,8 @@ function toEventCard(event: any): EventCardDTO {
   };
 
   if (event.type === 'news') {
-    const title = event.title_en || event.title || 'News';
-    return { ...base, title, subtitle: buildNewsSubtitle(event), url: event.url };
+    const title = event.title || event.title_en || 'News';
+    return { ...base, title, title_zh: event.title_zh, subtitle: buildNewsSubtitle(event), url: event.url };
   }
   if (event.type === 'market') {
     return {

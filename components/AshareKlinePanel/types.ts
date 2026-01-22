@@ -82,6 +82,7 @@ export type DecisionMeta = {
 export type NewsFeedItem = {
   title: string;
   title_en?: string;
+  title_zh?: string;
   source: string;
   url?: string;
   publishedAt: number;

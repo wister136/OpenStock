@@ -23,6 +23,7 @@ export async function GET(req: Request) {
       items: items.map((it: any) => ({
         title: it.title,
         title_en: it.title_en,
+        title_zh: it.title_zh,
         source: it.source,
         url: it.url,
         publishedAt: it.publishedAt,

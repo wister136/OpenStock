@@ -16,6 +16,7 @@ export interface IEventStream extends Document {
   score?: number;
   title?: string;
   title_en?: string;
+  title_zh?: string;
   publishedAt?: number;
   summary?: string;
   eventType?: string;
@@ -47,6 +48,7 @@ const EventStreamSchema = new Schema<IEventStream>(
     score: { type: Number, required: false, default: undefined },
     title: { type: String, required: false, default: undefined },
     title_en: { type: String, required: false, default: undefined },
+    title_zh: { type: String, required: false, default: undefined },
     publishedAt: { type: Number, required: false, default: undefined },
     summary: { type: String, required: false, default: undefined },
     eventType: { type: String, required: false, default: undefined },

@@ -8,7 +8,7 @@ import { analyzeNewsItem, syncNewsAnalysisToStorage } from '@/lib/ashare/news_an
 import { scoreNewsImpact } from '@/lib/ashare/news_scoring';
 import { normalizeSymbol } from '@/lib/ashare/symbol';
 import { sha1 } from '@/lib/hash';
-import { translateTitle } from '@/lib/translateTitle';
+import { translateTitle, translateTitleToZh } from '@/lib/translateTitle';
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -83,6 +83,7 @@ export async function POST(req: Request) {
   try {
     await connectToDatabase();
     const title_en = await translateTitle(title);
+    const title_zh = await translateTitleToZh(title);
     const marketLinkWindowRaw = Number(process.env.NEWS_MARKET_LINK_WINDOW_MINUTES ?? 30);
     const marketLinkWindow = Number.isFinite(marketLinkWindowRaw) ? marketLinkWindowRaw : 30;
     const marketLinked =
@@ -108,6 +109,7 @@ export async function POST(req: Request) {
       publishedAt,
       title,
       title_en,
+      title_zh,
       content,
       summary,
       eventType,
@@ -137,6 +139,7 @@ export async function POST(req: Request) {
           score: impactScore,
           title,
           title_en,
+          title_zh,
           publishedAt,
           summary,
           eventType,

@@ -5,6 +5,7 @@ export interface INewsItem extends Document {
   publishedAt: number;
   title: string;
   title_en?: string;
+  title_zh?: string;
   content?: string;
   url?: string;
   source: string;
@@ -26,6 +27,7 @@ const NewsItemSchema = new Schema<INewsItem>(
     publishedAt: { type: Number, required: true, index: true },
     title: { type: String, required: true },
     title_en: { type: String, required: false, default: undefined },
+    title_zh: { type: String, required: false, default: undefined },
     content: { type: String, required: false, default: undefined },
     url: { type: String, required: false, default: undefined },
     source: { type: String, required: true },

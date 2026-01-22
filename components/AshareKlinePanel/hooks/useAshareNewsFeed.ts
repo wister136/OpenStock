@@ -34,6 +34,7 @@ export function useAshareNewsFeed(newsDlgOpen: boolean, symbol: string) {
                 (it): NewsFeedItem => ({
                   title: String(it.title || ''),
                   title_en: typeof it.title === 'string' ? it.title : undefined,
+                  title_zh: typeof it.title_zh === 'string' ? it.title_zh : undefined,
                   source: String(it.source || ''),
                   url: typeof it.url === 'string' ? it.url : undefined,
                   publishedAt: Number(it.ts ?? it.publishedAt ?? 0),

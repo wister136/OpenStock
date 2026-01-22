@@ -254,15 +254,22 @@ async function writeCache(params: {
   }
 }
 
-export async function translateTitleWithMeta(title: string): Promise<TranslateMeta> {
+export async function translateTitleWithMeta(
+  title: string,
+  opts?: { allowEnToZh?: boolean; skipZhToEn?: boolean }
+): Promise<TranslateMeta> {
   const start = Date.now();
   const normalized = normalizeTitle(title ?? '');
   if (!normalized) {
     await recordTranslateStat({ provider: 'none', cached: true, durationMs: Date.now() - start, reason: 'empty' });
     return { title_en: normalized, provider: 'none', cached: true };
   }
-  const allowEnToZh = process.env.TRANSLATE_EN_TO_ZH === '1';
+  const allowEnToZh = opts?.allowEnToZh ?? process.env.TRANSLATE_EN_TO_ZH === '1';
   const hasZh = hasChinese(normalized);
+  if (hasZh && opts?.skipZhToEn) {
+    await recordTranslateStat({ provider: 'none', cached: true, durationMs: Date.now() - start, reason: 'skip_zh_to_en' });
+    return { title_en: normalized, provider: 'none', cached: true };
+  }
   if (!hasZh && !allowEnToZh) {
     await recordTranslateStat({ provider: 'none', cached: false, durationMs: Date.now() - start, reason: 'no_chinese' });
     return { title_en: normalized, provider: 'none', cached: false };
@@ -350,5 +357,13 @@ export async function translateTitleWithMeta(title: string): Promise<TranslateMe
 
 export async function translateTitle(title: string): Promise<string> {
   const res = await translateTitleWithMeta(title);
+  return res.title_en;
+}
+
+export async function translateTitleToZh(title: string): Promise<string> {
+  const normalized = normalizeTitle(title ?? '');
+  if (!normalized) return normalized;
+  if (hasChinese(normalized)) return normalized;
+  const res = await translateTitleWithMeta(normalized, { allowEnToZh: true, skipZhToEn: true });
   return res.title_en;
 }
