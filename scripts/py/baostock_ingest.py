@@ -15,9 +15,9 @@ from pymongo import MongoClient, UpdateOne
 # =========================
 
 # 站内统一用：SSE:603516 / SZSE:002317 这种格式
-DEFAULT_SYMBOLS = ["SZSE:002317", "SSE:600226", "SSE:603516","SZSE:000933"]
+DEFAULT_SYMBOLS = ["SZSE:002317", "SSE:600226", "SSE:603516","SZSE:000933","SZSE:002785"]
 
-# baostock 用：sz.002317 / sh.600226 / sh.603516 / sz.000933
+# baostock 用：sz.002317 / sh.600226 / sh.603516 / sz.000933 / sz.002785
 def to_baostock_code(symbol: str) -> str:
     s = symbol.strip().upper()
     if s.startswith("SZSE:"):
