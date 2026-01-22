@@ -8,9 +8,6 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Optional, List
 
-import re
-import html as html_lib
-
 import requests
 import xml.etree.ElementTree as ET
 
@@ -34,27 +31,12 @@ ENABLE_MOCK = os.getenv("NEWS_PUMP_ENABLE_MOCK", "0") == "1"
 POS_WORDS = ["beat", "growth", "upgrade", "surge", "profit", "strong", "rally", "bull"]
 NEG_WORDS = ["crash", "panic", "default", "lawsuit", "fraud", "halt", "sanction", "loss", "down", "bear"]
 
-# RSS feed sources (CN-friendly defaults).
-# You can override via env var RSS_URLS (comma-separated).
-# Example (PowerShell):
-#   $env:RSS_URLS="https://rss.sina.com.cn/finance/stock.xml,https://rsshub.app/cls/telegraph"
-# RSS feed sources (CN-friendly defaults).
-# You can override via env var RSS_URLS (comma-separated).
-# Example (PowerShell):
-#   $env:RSS_URLS="https://36kr.com/feed,http://www.huxiu.com/rss/0.xml"
-RSS_URLS = [u.strip() for u in os.getenv("RSS_URLS", "").split(",") if u.strip()] or [
-    # 36Kr / Huxiu (direct)
-    "https://36kr.com/feed",
-    "http://www.huxiu.com/rss/0.xml",
-
-    # Optional: RSSHub mirrors (public rsshub.app is often 403 in CN)
-    "https://rsshub.rssforever.com/cls/telegraph",
-    "https://rsshub.rssforever.com/36kr/newsflashes",
-
-    # Optional: stable proxy RSS (third-party)
-    "https://rss.aishort.top/?type=36kr",
-    "https://rss.aishort.top/?type=huxiu",
+RSS_URLS = [
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC&region=US&lang=en-US",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+    "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
 ]
+
 
 def parse_ts(text: Any) -> int:
     if text is None:
@@ -153,114 +135,36 @@ def build_payload(row: Dict[str, Any], last_ts: int, default_source: str) -> Opt
     }
 
 
-def strip_html_desc(s: str) -> str:
-    """Strip HTML tags from RSS <description> and keep plain text."""
-    if not s:
-        return ""
-    s = html_lib.unescape(str(s))
-    # remove script/style blocks
-    s = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", s)
-    # replace common breaks
-    s = re.sub(r"(?is)<br\s*/?>", "\n", s)
-    s = re.sub(r"(?is)</p\s*>", "\n", s)
-    # drop images first
-    s = re.sub(r"(?is)<img[^>]*>", " ", s)
-    # strip remaining tags
-    s = re.sub(r"(?is)<[^>]+>", " ", s)
-    # normalize whitespace/newlines
-    s = re.sub(r"[ \t\r\f\v]+", " ", s)
-    s = re.sub(r"\n\s*\n+", "\n", s)
-    return s.strip()
-
 def fetch_rss_entries() -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
-    headers = {
-        "User-Agent": "OpenStock-NewsPump/1.0",
-        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-    }
-    timeout = int(os.getenv("RSS_TIMEOUT_SEC", "15"))
+    headers = {"User-Agent": "OpenStock-NewsPump/1.0"}
     for url in RSS_URLS:
         try:
-            resp = requests.get(url, headers=headers, timeout=timeout)
+            resp = requests.get(url, headers=headers, timeout=10)
             if resp.status_code != 200:
-                # keep quiet unless debug is enabled
-                if os.getenv("RSS_DEBUG", "0") == "1":
-                    print(f"RSS HTTP {resp.status_code}: {url}")
                 continue
-
-            # Use bytes to respect XML encoding declarations (gb2312/utf-8/etc.)
-            raw = resp.content or b""
-            if not raw.strip():
-                if os.getenv("RSS_DEBUG", "0") == "1":
-                    print(f"RSS empty body: {url}")
-                continue
-
-            root = ET.fromstring(raw)
-
-            # RSS 2.0: <item> ; Atom: <entry>
-            feed_items = root.findall(".//item")
-            feed_entries = root.findall(".//{*}entry")
-
-            if not feed_items and not feed_entries:
-                if os.getenv("RSS_DEBUG", "0") == "1":
-                    print(f"RSS parse OK but no <item>/<entry>: {url} (len={len(raw)})")
-                continue
-
-            # --- RSS items ---
-            for it in feed_items:
-                title = (it.findtext("title") or "").strip()
-                link = (it.findtext("link") or "").strip()
-                desc = (it.findtext("description") or "").strip()
-                desc_text = strip_html_desc(desc)
-                pub = (it.findtext("pubDate") or "").strip()
+            root = ET.fromstring(resp.text)
+            for item in root.findall(".//item"):
+                title = (item.findtext("title") or "").strip()
+                link = (item.findtext("link") or "").strip()
+                desc = (item.findtext("description") or "").strip()
+                pub = (item.findtext("pubDate") or "").strip()
                 published_at = parse_ts(pub)
-                if title:
-                    items.append(
-                        {
-                            "title": title,
-                            "content": desc_text,
-                            "url": link,
-                            "publishedAt": published_at,
-                            "source": "RSS",
-                            "provider": url,
-                        }
-                    )
-
-            # --- Atom entries ---
-            for en in feed_entries:
-                title = (en.findtext("{*}title") or "").strip()
-                link_el = en.find("{*}link")
-                link = ""
-                if link_el is not None:
-                    link = (link_el.attrib.get("href") or "").strip()
-                summary = (en.findtext("{*}summary") or en.findtext("{*}content") or "").strip()
-                summary_text = strip_html_desc(summary)
-                pub = (en.findtext("{*}updated") or en.findtext("{*}published") or "").strip()
-                published_at = parse_ts(pub)
-                if title:
-                    items.append(
-                        {
-                            "title": title,
-                            "content": summary_text,
-                            "url": link,
-                            "publishedAt": published_at,
-                            "source": "RSS",
-                            "provider": url,
-                        }
-                    )
+                if not title:
+                    continue
+                items.append(
+                    {
+                        "title": title,
+                        "content": desc,
+                        "url": link,
+                        "publishedAt": published_at,
+                        "source": "rss",
+                    }
+                )
         except Exception as exc:
-            # provider-level exception should not kill the loop
-            if os.getenv("RSS_DEBUG", "0") == "1":
-                print(f"RSS provider failed: {exc} ({url})")
+            print(f"RSS provider failed: {exc}")
             continue
-
-    # Sort newest first
-    items.sort(key=lambda x: int(x.get("publishedAt") or 0), reverse=True)
-
-    # Optional cap
-    cap = int(os.getenv("RSS_MAX_ITEMS", "50"))
-    return items[:cap]
-
+    return items
 
 
 def post_news(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -335,9 +239,7 @@ def push_rows(provider_key: str, rows: List[Dict[str, Any]], default_source: str
         print("Missing NEWS_INGEST_API_KEY, skip pushing.")
         return 0
     key = f"{SYMBOL}|{provider_key}"
-    last_ts = 0 if os.getenv("NEWS_PUMP_DISABLE_CURSOR", "0") == "1" else get_cursor(key)
-    if os.getenv("RSS_DEBUG", "0") == "1":
-        print(f"Cursor key={key} last_ts={last_ts} rows={len(rows)}")
+    last_ts = get_cursor(key)
     sent = 0
     max_published = last_ts
     for row in rows:
@@ -359,9 +261,7 @@ def push_rss(rows: List[Dict[str, Any]]) -> int:
         print("Missing NEWS_INGEST_API_KEY, skip pushing.")
         return 0
     key = f"{SYMBOL}|RSS"
-    last_ts = 0 if os.getenv("NEWS_PUMP_DISABLE_CURSOR", "0") == "1" else get_cursor(key)
-    if os.getenv("RSS_DEBUG", "0") == "1":
-        print(f"Cursor key={key} last_ts={last_ts} rows={len(rows)}")
+    last_ts = get_cursor(key)
     sent = 0
     max_published = last_ts
     for row in rows:
@@ -395,8 +295,7 @@ def push_mock(rows: List[Dict[str, Any]]) -> int:
         print("Missing NEWS_INGEST_API_KEY, skip pushing.")
         return 0
     key = f"{SYMBOL}|MOCK"
-    if os.getenv("RSS_DEBUG", "0") == "1":
-        print(f"RSS cursor key={key} last_ts={last_ts}")
+    last_ts = get_cursor(key)
     sent = 0
     max_published = last_ts
     for row in rows:

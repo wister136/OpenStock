@@ -268,7 +268,11 @@ export default function RegimeExternalPanel({
             {!newsLoading && !newsError && newsItems.length > 0 && (
               <div className="space-y-3">
                 {newsItems.map((it) => {
-                  const showTitle = it.title_en ?? it.title;
+                  const hasChinese = (s: string) => /[\u4e00-\u9fff]/.test(s);
+                  const rawTitle = it.title || '';
+                  const titleZh = it.title_en;
+                  const showTitle = hasChinese(rawTitle) ? rawTitle : titleZh ?? rawTitle;
+                  const subTitle = !hasChinese(rawTitle) && titleZh ? rawTitle : null;
                   return (
                     <div key={`${it.publishedAt}-${it.title}`} className="rounded-lg border border-white/10 bg-white/5 p-3">
                       <div className="text-sm text-gray-100">
@@ -280,6 +284,7 @@ export default function RegimeExternalPanel({
                           <span>{showTitle}</span>
                         )}
                       </div>
+                      {subTitle && <div className="mt-1 text-xs text-gray-400">{subTitle}</div>}
                       <div className="mt-2 text-[11px] text-gray-400 flex flex-wrap items-center gap-2">
                         <span>来源: {it.source || '--'}</span>
                         <span>时间: {fmtDateTime(it.publishedAt)}</span>
