@@ -10,6 +10,7 @@ import NewsSentimentSnapshot from '@/database/models/NewsSentimentSnapshot';
 import { computeRollingSentiment } from '@/lib/ashare/news_aggregation';
 import { normalizeSymbol } from '@/lib/ashare/symbol';
 import { sha1 } from '@/lib/hash';
+import { classifyNewsRegion, normalizeNewsSource } from '@/lib/newsRegion';
 import { translateTitle, translateTitleToZh } from '@/lib/translateTitle';
 
 function normalizeImpactScore(value: unknown): number | undefined {
@@ -50,6 +51,7 @@ export async function POST(req: Request) {
         : undefined;
   const url = typeof body?.url === 'string' ? body.url.trim() : undefined;
   const source = typeof body?.source === 'string' ? body.source.trim() : '';
+  const provider = typeof body?.provider === 'string' ? body.provider.trim() : '';
   const sentimentScore = body?.score == null ? (body?.sentimentScore == null ? undefined : Number(body.sentimentScore)) : Number(body.score);
   const confidence = body?.confidence == null ? undefined : Number(body.confidence);
   const impactScoreInput = normalizeImpactScore(body?.impactScore);
@@ -85,6 +87,8 @@ export async function POST(req: Request) {
     if (existing) {
       return NextResponse.json({ ok: true, status: 'skipped', reason: 'duplicate', symbol, serverTime });
     }
+    const normalized = normalizeNewsSource({ source_name: source, provider, url, title, feedName: body?.feedName, feedId: body?.feedId });
+    const regionResult = classifyNewsRegion(normalized);
     const title_en = await translateTitle(title);
     const title_zh = await translateTitleToZh(title);
     const marketLinkWindowRaw = Number(process.env.NEWS_MARKET_LINK_WINDOW_MINUTES ?? 30);
@@ -115,6 +119,12 @@ export async function POST(req: Request) {
           title,
           title_en,
           title_zh,
+          provider: normalized.provider,
+          url_host: normalized.url_host,
+          region: regionResult.region,
+          region_reason: regionResult.reason,
+          region_confidence: regionResult.confidence,
+          region_updated_at: Date.now(),
           content,
           summary,
           eventType,
@@ -149,6 +159,9 @@ export async function POST(req: Request) {
           title,
           title_en,
           title_zh,
+          region: regionResult.region,
+          region_reason: regionResult.reason,
+          region_confidence: regionResult.confidence,
           publishedAt,
           summary,
           eventType,

@@ -17,6 +17,9 @@ export interface IEventStream extends Document {
   title?: string;
   title_en?: string;
   title_zh?: string;
+  region?: 'domestic' | 'global';
+  region_reason?: string;
+  region_confidence?: number;
   publishedAt?: number;
   summary?: string;
   eventType?: string;
@@ -49,6 +52,9 @@ const EventStreamSchema = new Schema<IEventStream>(
     title: { type: String, required: false, default: undefined },
     title_en: { type: String, required: false, default: undefined },
     title_zh: { type: String, required: false, default: undefined },
+    region: { type: String, required: false, default: undefined },
+    region_reason: { type: String, required: false, default: undefined },
+    region_confidence: { type: Number, required: false, default: undefined },
     publishedAt: { type: Number, required: false, default: undefined },
     summary: { type: String, required: false, default: undefined },
     eventType: { type: String, required: false, default: undefined },

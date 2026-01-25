@@ -2,6 +2,7 @@ import TradingViewWidget from '@/components/TradingViewWidget';
 import SectionTitle from '@/components/SectionTitle';
 import InternalStockCard from '@/components/InternalStockCard';
 import InternalQuotesTable from '@/components/InternalQuotesTable';
+import HomeNewsSection from '@/components/HomeNewsSection';
 import { HOME_WATCHLIST, MARKET_OVERVIEW_WIDGET_CONFIG } from '@/lib/constants';
 
 const scriptBase = 'https://s3.tradingview.com/external-embedding/embed-widget-';
@@ -50,6 +51,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <HomeNewsSection />
     </div>
   );
 }

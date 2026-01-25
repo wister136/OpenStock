@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -80,9 +80,7 @@ export default function RegimeExternalPanel({
   autoTuneBackup,
 }: Props) {
   const [showAllReasons, setShowAllReasons] = useState(false);
-  const [showParams, setShowParams] = useState(true);
-  const [paramPanelHeight, setParamPanelHeight] = useState<number | null>(null);
-  const paramPanelRef = useRef<HTMLDivElement | null>(null);
+  const [showParams, setShowParams] = useState(false);
 
   const updateConfigField = useCallback(
     <T extends keyof RegimeConfig>(section: T, key: keyof RegimeConfig[T], value: number) => {
@@ -99,30 +97,6 @@ export default function RegimeExternalPanel({
     },
     [setConfigDraft]
   );
-
-  const recomputeParamHeight = useCallback(() => {
-    if (!showParams) {
-      setParamPanelHeight(null);
-      return;
-    }
-    const panel = paramPanelRef.current;
-    if (!panel) return;
-    setParamPanelHeight(panel.getBoundingClientRect().height);
-  }, [showParams]);
-
-  useLayoutEffect(() => {
-    recomputeParamHeight();
-    if (!showParams) return;
-    const panel = paramPanelRef.current;
-    if (!panel) return;
-    const ro = new ResizeObserver(() => recomputeParamHeight());
-    ro.observe(panel);
-    window.addEventListener('resize', recomputeParamHeight);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', recomputeParamHeight);
-    };
-  }, [recomputeParamHeight, showParams]);
 
   const fmtNewsSource = (source?: DecisionMeta['news_source']) => {
     if (!source) return '--';
@@ -145,7 +119,8 @@ export default function RegimeExternalPanel({
   };
 
   return (
-    <div className="px-5 pb-3 grid grid-cols-1 lg:grid-cols-[0.8fr_1.4fr_1fr] gap-3 items-stretch">
+    <div className="px-5 pb-3 space-y-3">
+      <div className="grid grid-cols-1 lg:grid-cols-[0.8fr_1.8fr] gap-3 items-stretch">
       <div className="rounded-xl bg-white/5 border border-white/5 p-4 h-full">
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-300">{t('ashare.panel.regimeDecision')}</div>
@@ -214,10 +189,7 @@ export default function RegimeExternalPanel({
         )}
       </div>
 
-      <div
-        className="rounded-xl bg-white/5 border border-white/5 p-4 h-full grid grid-rows-[auto_auto_auto_1fr] gap-2 overflow-hidden"
-        style={showParams && paramPanelHeight ? { height: paramPanelHeight } : undefined}
-      >
+      <div className="rounded-xl bg-white/5 border border-white/5 p-4 h-full grid grid-rows-[auto_auto_auto_1fr] gap-2 overflow-hidden">
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-300">{t('ashare.panel.externalSignals')}</div>
           <Button
@@ -251,8 +223,9 @@ export default function RegimeExternalPanel({
           )}
         </div>
         <div className="min-h-0">
-          <ExternalNewsTicker symbol={symbol} fill={showParams} listClassName={!showParams ? 'max-h-56' : undefined} />
+          <ExternalNewsTicker symbol={symbol} fill />
         </div>
+      </div>
       </div>
 
       <Dialog open={newsDlgOpen} onOpenChange={setNewsDlgOpen}>
@@ -312,7 +285,7 @@ export default function RegimeExternalPanel({
         </DialogContent>
       </Dialog>
 
-      <div className="rounded-xl bg-white/5 border border-white/5 p-4 h-full" ref={paramPanelRef}>
+      <div className="rounded-xl bg-white/5 border border-white/5 p-4">
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-300">{t('ashare.panel.configPanel')}</div>
           <div className="flex items-center gap-2">
@@ -321,7 +294,7 @@ export default function RegimeExternalPanel({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 text-xs text-gray-300"
+                className="h-7 px-2 text-sm text-gray-300"
                 onClick={refreshDecision}
               >
                 {t('common.refresh')}
@@ -331,53 +304,55 @@ export default function RegimeExternalPanel({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs text-gray-300"
+              className="h-7 px-2 text-sm text-gray-300"
               onClick={() => setShowParams((v) => !v)}
             >
               {showParams ? t('common.collapse') : t('common.expand')}
             </Button>
-            <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => applyConfig()} disabled={configLoading}>
+            <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-sm" onClick={() => applyConfig()} disabled={configLoading}>
               {t('common.apply')}
             </Button>
           </div>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1">
-          {(['3s', '5s', '10s', 'manual'] as const).map((opt) => (
-            <Button
-              key={opt}
-              type="button"
-              variant="ghost"
-              size="sm"
-              className={cn('h-7 px-2 text-xs', refreshInterval === opt ? 'bg-white/10 text-white' : 'text-gray-300')}
-              onClick={() => setRefreshInterval(opt)}
-            >
-              {opt === 'manual' ? t('ashare.panel.refreshManual') : t('ashare.panel.refreshEvery', { sec: opt.replace('s', '') })}
-            </Button>
-          ))}
-        </div>
+        {showParams && (
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            {(['3s', '5s', '10s', 'manual'] as const).map((opt) => (
+              <Button
+                key={opt}
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={cn('h-7 px-2 text-sm', refreshInterval === opt ? 'bg-white/10 text-white' : 'text-gray-300')}
+                onClick={() => setRefreshInterval(opt)}
+              >
+                {opt === 'manual' ? t('ashare.panel.refreshManual') : t('ashare.panel.refreshEvery', { sec: opt.replace('s', '') })}
+              </Button>
+            ))}
+          </div>
+        )}
         {showParams && configDraft && (
           <div className="mt-3 space-y-3 text-sm">
             <div>
               <div className="text-gray-400">{t('ashare.panel.weights')}</div>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.weightTrend')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.weightTrend')}</div>
                   <Input type="number" step="0.01" value={configDraft.weights.w_trend} onChange={(e) => updateConfigField('weights', 'w_trend', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.weightRange')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.weightRange')}</div>
                   <Input type="number" step="0.01" value={configDraft.weights.w_range} onChange={(e) => updateConfigField('weights', 'w_range', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.weightPanic')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.weightPanic')}</div>
                   <Input type="number" step="0.01" value={configDraft.weights.w_panic} onChange={(e) => updateConfigField('weights', 'w_panic', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.weightNews')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.weightNews')}</div>
                   <Input type="number" step="0.01" value={configDraft.weights.w_news} onChange={(e) => updateConfigField('weights', 'w_news', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.weightRealtime')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.weightRealtime')}</div>
                   <Input type="number" step="0.01" value={configDraft.weights.w_realtime} onChange={(e) => updateConfigField('weights', 'w_realtime', Number(e.target.value))} />
                 </div>
               </div>
@@ -386,31 +361,31 @@ export default function RegimeExternalPanel({
               <div className="text-gray-400">{t('ashare.panel.thresholds')}</div>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.trendScoreThreshold')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.trendScoreThreshold')}</div>
                   <Input type="number" step="0.01" value={configDraft.thresholds.trendScoreThreshold} onChange={(e) => updateConfigField('thresholds', 'trendScoreThreshold', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.panicVolRatio')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.panicVolRatio')}</div>
                   <Input type="number" step="0.01" value={configDraft.thresholds.panicVolRatio} onChange={(e) => updateConfigField('thresholds', 'panicVolRatio', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.panicDrawdown')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.panicDrawdown')}</div>
                   <Input type="number" step="0.01" value={configDraft.thresholds.panicDrawdown} onChange={(e) => updateConfigField('thresholds', 'panicDrawdown', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.volRatioLow')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.volRatioLow')}</div>
                   <Input type="number" step="0.01" value={configDraft.thresholds.volRatioLow} onChange={(e) => updateConfigField('thresholds', 'volRatioLow', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.volRatioHigh')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.volRatioHigh')}</div>
                   <Input type="number" step="0.01" value={configDraft.thresholds.volRatioHigh} onChange={(e) => updateConfigField('thresholds', 'volRatioHigh', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.minLiquidityAmountRatio')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.minLiquidityAmountRatio')}</div>
                   <Input type="number" step="0.01" value={configDraft.thresholds.minLiquidityAmountRatio} onChange={(e) => updateConfigField('thresholds', 'minLiquidityAmountRatio', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.minLiquidityVolumeRatio')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.minLiquidityVolumeRatio')}</div>
                   <Input
                     type="number"
                     step="0.01"
@@ -419,23 +394,23 @@ export default function RegimeExternalPanel({
                   />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.realtimeVolSurprise')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.realtimeVolSurprise')}</div>
                   <Input type="number" step="0.01" value={configDraft.thresholds.realtimeVolSurprise} onChange={(e) => updateConfigField('thresholds', 'realtimeVolSurprise', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.realtimeAmtSurprise')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.realtimeAmtSurprise')}</div>
                   <Input type="number" step="0.01" value={configDraft.thresholds.realtimeAmtSurprise} onChange={(e) => updateConfigField('thresholds', 'realtimeAmtSurprise', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.newsPanicThreshold')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.newsPanicThreshold')}</div>
                   <Input type="number" step="0.01" value={configDraft.thresholds.newsPanicThreshold} onChange={(e) => updateConfigField('thresholds', 'newsPanicThreshold', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.newsTrendThreshold')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.newsTrendThreshold')}</div>
                   <Input type="number" step="0.01" value={configDraft.thresholds.newsTrendThreshold} onChange={(e) => updateConfigField('thresholds', 'newsTrendThreshold', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.hysteresisThreshold')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.hysteresisThreshold')}</div>
                   <Input type="number" step="0.01" value={configDraft.thresholds.hysteresisThreshold} onChange={(e) => updateConfigField('thresholds', 'hysteresisThreshold', Number(e.target.value))} />
                 </div>
               </div>
@@ -444,38 +419,38 @@ export default function RegimeExternalPanel({
               <div className="text-gray-400">{t('ashare.panel.positionCaps')}</div>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.positionTrend')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.positionTrend')}</div>
                   <Input type="number" step="0.01" value={configDraft.positionCaps.trend} onChange={(e) => updateConfigField('positionCaps', 'trend', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.positionRange')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.positionRange')}</div>
                   <Input type="number" step="0.01" value={configDraft.positionCaps.range} onChange={(e) => updateConfigField('positionCaps', 'range', Number(e.target.value))} />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">{t('ashare.panel.positionPanic')}</div>
+                  <div className="text-sm text-gray-500">{t('ashare.panel.positionPanic')}</div>
                   <Input type="number" step="0.01" value={configDraft.positionCaps.panic} onChange={(e) => updateConfigField('positionCaps', 'panic', Number(e.target.value))} />
                 </div>
               </div>
             </div>
             <div className="rounded-lg border border-white/5 bg-white/5 p-3">
               <div className="flex items-center justify-between">
-                <div className="text-xs text-gray-300">{t('ashare.panel.autoTune')}</div>
+                <div className="text-sm text-gray-300">{t('ashare.panel.autoTune')}</div>
                 <div className="flex items-center gap-2">
-                  <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-[10px]" onClick={startAutoTune} disabled={autoTuneLoading}>
+                  <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-sm" onClick={startAutoTune} disabled={autoTuneLoading}>
                     {autoTuneLoading ? t('common.loading') : t('ashare.panel.autoTuneStart')}
                   </Button>
-                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px]" onClick={applyRecommended} disabled={!autoTuneResult?.bestParams}>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-sm" onClick={applyRecommended} disabled={!autoTuneResult?.bestParams}>
                     {t('ashare.panel.autoTuneApply')}
                   </Button>
-                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px]" onClick={rollbackConfig} disabled={!autoTuneBackup}>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-sm" onClick={rollbackConfig} disabled={!autoTuneBackup}>
                     {t('ashare.panel.autoTuneRollback')}
                   </Button>
                 </div>
               </div>
-              <div className="mt-2 text-[11px] text-gray-500">{t('ashare.panel.autoTuneHint')}</div>
-              {autoTuneError && <div className="mt-2 text-xs text-yellow-400">{autoTuneError}</div>}
+              <div className="mt-2 text-sm text-gray-500">{t('ashare.panel.autoTuneHint')}</div>
+              {autoTuneError && <div className="mt-2 text-sm text-yellow-400">{autoTuneError}</div>}
               {autoTuneResult && (
-                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-gray-300">
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-300">
                   <div>{t('ashare.panel.autoTuneTrainDays')}</div>
                   <div className="text-gray-100">{autoTuneResult.trainDays}</div>
                   <div>{t('ashare.panel.autoTuneTrials')}</div>
@@ -493,29 +468,7 @@ export default function RegimeExternalPanel({
             </div>
           </div>
         )}
-        {!showParams && configDraft && (
-          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-gray-300">
-            <div className="text-gray-400">{t('ashare.panel.weightTrend')}</div>
-            <div className="text-gray-100">{configDraft.weights.w_trend.toFixed(2)}</div>
-            <div className="text-gray-400">{t('ashare.panel.weightRange')}</div>
-            <div className="text-gray-100">{configDraft.weights.w_range.toFixed(2)}</div>
-            <div className="text-gray-400">{t('ashare.panel.weightPanic')}</div>
-            <div className="text-gray-100">{configDraft.weights.w_panic.toFixed(2)}</div>
-            <div className="text-gray-400">{t('ashare.panel.weightNews')}</div>
-            <div className="text-gray-100">{configDraft.weights.w_news.toFixed(2)}</div>
-            <div className="text-gray-400">{t('ashare.panel.weightRealtime')}</div>
-            <div className="text-gray-100">{configDraft.weights.w_realtime.toFixed(2)}</div>
-            <div className="text-gray-400">{t('ashare.panel.newsPanicThreshold')}</div>
-            <div className="text-gray-100">{configDraft.thresholds.newsPanicThreshold.toFixed(2)}</div>
-            <div className="text-gray-400">{t('ashare.panel.newsTrendThreshold')}</div>
-            <div className="text-gray-100">{configDraft.thresholds.newsTrendThreshold.toFixed(2)}</div>
-            <div className="text-gray-400">{t('ashare.panel.realtimeVolSurprise')}</div>
-            <div className="text-gray-100">{configDraft.thresholds.realtimeVolSurprise.toFixed(2)}</div>
-            <div className="text-gray-400">{t('ashare.panel.realtimeAmtSurprise')}</div>
-            <div className="text-gray-100">{configDraft.thresholds.realtimeAmtSurprise.toFixed(2)}</div>
-          </div>
-        )}
-        {!configDraft && <div className="mt-3 text-xs text-gray-500">{t('common.loading')}</div>}
+        {showParams && !configDraft && <div className="mt-3 text-sm text-gray-500">{t('common.loading')}</div>}
       </div>
     </div>
   );

@@ -83,6 +83,9 @@ export type NewsFeedItem = {
   title: string;
   title_en?: string;
   title_zh?: string;
+  region?: 'domestic' | 'global';
+  region_reason?: string;
+  region_confidence?: number;
   source: string;
   url?: string;
   publishedAt: number;

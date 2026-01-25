@@ -1,0 +1,40 @@
+{
+  "publisherRules": {
+    "央视新闻": "domestic",
+    "新华社": "domestic",
+    "财新": "domestic",
+    "证券时报": "domestic",
+    "东方财富": "domestic",
+    "同花顺": "domestic",
+    "新浪财经": "domestic",
+    "财联社": "domestic",
+    "Reuters": "global",
+    "Bloomberg": "global",
+    "CNBC": "global",
+    "Wall Street Journal": "global",
+    "Financial Times": "global",
+    "MarketWatch": "global",
+    "Yahoo Finance": "global",
+    "Seeking Alpha": "global"
+  },
+  "hostRules": {
+    "news.cctv.com": "domestic",
+    "cctv.com": "domestic",
+    "xinhua.net": "domestic",
+    "xinhuanet.com": "domestic",
+    "eastmoney.com": "domestic",
+    "money.163.com": "domestic",
+    "finance.sina.com.cn": "domestic",
+    "10jqka.com.cn": "domestic",
+    "cls.cn": "domestic",
+    "reuters.com": "global",
+    "bloomberg.com": "global",
+    "cnbc.com": "global",
+    "wsj.com": "global",
+    "ft.com": "global",
+    "marketwatch.com": "global",
+    "finance.yahoo.com": "global",
+    "seekingalpha.com": "global",
+    "investing.com": "global"
+  }
+}

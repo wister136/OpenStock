@@ -29,6 +29,8 @@ POLL_MAX_SEC = 60
 BACKOFF_STEPS = [30, 60, 120, 300]
 ONESHOT = os.getenv("NEWS_PUMP_ONESHOT") == "1"
 ENABLE_MOCK = os.getenv("NEWS_PUMP_ENABLE_MOCK", "0") == "1"
+STATUS_ENDPOINT = os.getenv("NEWS_INGEST_STATUS_ENDPOINT")
+SLEEP_WHEN_DISABLED = int(os.getenv("NEWS_INGEST_DISABLED_SLEEP_SEC", "30"))
 
 
 POS_WORDS = ["beat", "growth", "upgrade", "surge", "profit", "strong", "rally", "bull"]
@@ -54,6 +56,15 @@ RSS_URLS = [u.strip() for u in os.getenv("RSS_URLS", "").split(",") if u.strip()
     # Optional: stable proxy RSS (third-party)
     "https://rss.aishort.top/?type=36kr",
     "https://rss.aishort.top/?type=huxiu",
+
+    # Global finance/news RSS
+    "https://feeds.reuters.com/reuters/businessNews",
+    "https://feeds.reuters.com/reuters/marketsNews",
+    "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+    "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+    "https://www.ft.com/?format=rss",
+    "https://feeds.marketwatch.com/marketwatch/topstories/",
+    "https://finance.yahoo.com/news/rssindex",
 ]
 
 def parse_ts(text: Any) -> int:
@@ -198,6 +209,8 @@ def fetch_rss_entries() -> List[Dict[str, Any]]:
             root = ET.fromstring(raw)
 
             # RSS 2.0: <item> ; Atom: <entry>
+            feed_title = (root.findtext(".//channel/title") or root.findtext(".//{*}title") or "").strip()
+            feed_title = strip_html_desc(feed_title)
             feed_items = root.findall(".//item")
             feed_entries = root.findall(".//{*}entry")
 
@@ -221,8 +234,10 @@ def fetch_rss_entries() -> List[Dict[str, Any]]:
                             "content": desc_text,
                             "url": link,
                             "publishedAt": published_at,
-                            "source": "RSS",
+                            "source": feed_title or "RSS",
                             "provider": url,
+                            "feedName": feed_title or "",
+                            "feedId": url,
                         }
                     )
 
@@ -244,8 +259,10 @@ def fetch_rss_entries() -> List[Dict[str, Any]]:
                             "content": summary_text,
                             "url": link,
                             "publishedAt": published_at,
-                            "source": "RSS",
+                            "source": feed_title or "RSS",
                             "provider": url,
+                            "feedName": feed_title or "",
+                            "feedId": url,
                         }
                     )
         except Exception as exc:
@@ -277,6 +294,27 @@ def cursor_endpoint() -> str:
         return env
     if ENDPOINT.endswith("/external/news"):
         return ENDPOINT.replace("/external/news", "/external/news_cursor")
+
+
+def status_endpoint() -> str:
+    if STATUS_ENDPOINT:
+        return STATUS_ENDPOINT
+    if "/api/ashare/external/news" in ENDPOINT:
+        return ENDPOINT.replace("/api/ashare/external/news", "/api/system/news-ingest/status")
+    return ENDPOINT.rstrip("/") + "/api/system/news-ingest/status"
+
+
+def ingest_enabled() -> bool:
+    try:
+        resp = requests.get(status_endpoint(), timeout=8)
+        if resp.status_code != 200:
+            return True
+        data = resp.json()
+        if isinstance(data, dict) and "enabled" in data:
+            return bool(data.get("enabled"))
+    except Exception:
+        return True
+    return True
     return "http://localhost:3000/api/ashare/external/news_cursor"
 
 
@@ -485,6 +523,10 @@ if __name__ == "__main__":
     fail_count = 0
 
     while True:
+        if not ingest_enabled():
+            print("News ingest disabled. Sleeping...")
+            time.sleep(SLEEP_WHEN_DISABLED)
+            continue
         ok = main()
         if ok:
             fail_count = 0

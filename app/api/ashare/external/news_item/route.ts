@@ -8,6 +8,7 @@ import { analyzeNewsItem, syncNewsAnalysisToStorage } from '@/lib/ashare/news_an
 import { scoreNewsImpact } from '@/lib/ashare/news_scoring';
 import { normalizeSymbol } from '@/lib/ashare/symbol';
 import { sha1 } from '@/lib/hash';
+import { classifyNewsRegion, normalizeNewsSource } from '@/lib/newsRegion';
 import { translateTitle, translateTitleToZh } from '@/lib/translateTitle';
 
 function isFiniteNumber(value: unknown): value is number {
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
           : undefined;
   const url = typeof body?.url === 'string' ? body.url.trim() : undefined;
   const source = typeof body?.source === 'string' ? body.source.trim() : '';
+  const provider = typeof body?.provider === 'string' ? body.provider.trim() : '';
   const sentimentScore = body?.sentimentScore == null ? undefined : Number(body.sentimentScore);
   const confidenceRaw = body?.confidence == null ? body?.impactScore : body?.confidence;
   const confidence = confidenceRaw == null ? undefined : Number(confidenceRaw);
@@ -82,6 +84,8 @@ export async function POST(req: Request) {
 
   try {
     await connectToDatabase();
+    const normalized = normalizeNewsSource({ source_name: source, provider, url, title, feedName: body?.feedName, feedId: body?.feedId });
+    const regionResult = classifyNewsRegion(normalized);
     const title_en = await translateTitle(title);
     const title_zh = await translateTitleToZh(title);
     const marketLinkWindowRaw = Number(process.env.NEWS_MARKET_LINK_WINDOW_MINUTES ?? 30);
@@ -110,6 +114,12 @@ export async function POST(req: Request) {
       title,
       title_en,
       title_zh,
+      provider: normalized.provider,
+      url_host: normalized.url_host,
+      region: regionResult.region,
+      region_reason: regionResult.reason,
+      region_confidence: regionResult.confidence,
+      region_updated_at: Date.now(),
       content,
       summary,
       eventType,
@@ -140,6 +150,9 @@ export async function POST(req: Request) {
           title,
           title_en,
           title_zh,
+          region: regionResult.region,
+          region_reason: regionResult.reason,
+          region_confidence: regionResult.confidence,
           publishedAt,
           summary,
           eventType,

@@ -13,6 +13,9 @@ type EventItem = {
   isMock?: boolean;
   title: string;
   title_zh?: string;
+  region?: 'domestic' | 'global';
+  region_reason?: string;
+  region_confidence?: number;
   subtitle?: string;
   sentimentScore?: number;
   confidence?: number;
@@ -49,8 +52,15 @@ export default function ExternalNewsTicker({
   const [error, setError] = useState(false);
   const lastMaxTsRef = useRef<number>(0);
   const [newSet, setNewSet] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<'domestic' | 'global'>('domestic');
 
   const hasChinese = (text: string) => /[\u4e00-\u9fff]/.test(text || '');
+  const isDomestic = (item: EventItem) => {
+    if (item.region === 'domestic') return true;
+    if (item.region === 'global') return false;
+    const text = `${item.title || ''} ${item.subtitle || ''}`;
+    return hasChinese(text);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +148,9 @@ export default function ExternalNewsTicker({
   const staleMs = isTradingSession ? 45 * 60 * 1000 : 8 * 60 * 60 * 1000;
   const isDelayed = latestTs > 0 && serverTime - latestTs > staleMs;
   const pollSec = Math.round((Number(process.env.NEXT_PUBLIC_NEWS_POLL_INTERVAL_MS ?? 10000) || 10000) / 1000);
+  const visibleItems = sorted.filter(
+    (it) => it.type !== 'news' || (activeTab === 'domestic' ? isDomestic(it) : !isDomestic(it))
+  );
 
   const listCls = cn(
     'mt-3 overflow-auto space-y-3 pr-1',
@@ -151,6 +164,32 @@ export default function ExternalNewsTicker({
         <div className="text-base text-slate-900 dark:text-slate-100">{t('ashare.news.title')}</div>
         <div className="text-sm text-slate-700 dark:text-slate-300">{t('ashare.news.refreshEvery', { sec: pollSec })}</div>
       </div>
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          className={cn(
+            'px-3 py-1 rounded-full text-sm border',
+            activeTab === 'domestic'
+              ? 'text-white bg-white/10 border-white/20'
+              : 'text-slate-600 dark:text-slate-300 border-white/10 hover:text-slate-800 dark:hover:text-white'
+          )}
+          onClick={() => setActiveTab('domestic')}
+        >
+          {t('ashare.news.domestic')}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'px-3 py-1 rounded-full text-sm border',
+            activeTab === 'global'
+              ? 'text-white bg-white/10 border-white/20'
+              : 'text-slate-600 dark:text-slate-300 border-white/10 hover:text-slate-800 dark:hover:text-white'
+          )}
+          onClick={() => setActiveTab('global')}
+        >
+          {t('ashare.news.global')}
+        </button>
+      </div>
 
       {error && <div className="mt-3 text-sm text-yellow-400">{t('ashare.news.unavailable')}</div>}
       {!error && !isDelayed && <div className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">{t('ashare.events.live')}</div>}
@@ -158,8 +197,8 @@ export default function ExternalNewsTicker({
 
       {!error && (
         <div className={listCls}>
-          {sorted.length === 0 && <div className="text-sm text-slate-600 dark:text-slate-300">{t('ashare.news.empty')}</div>}
-          {sorted.map((it) => {
+          {visibleItems.length === 0 && <div className="text-sm text-slate-600 dark:text-slate-300">{t('ashare.news.empty')}</div>}
+          {visibleItems.map((it) => {
             const freshness = freshnessLabel(it.ts);
             const isNew = newSet.has(it.id);
             const rawTitle = (it.title || '').trim();

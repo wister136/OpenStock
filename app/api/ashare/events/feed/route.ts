@@ -16,6 +16,9 @@ type EventCardDTO = {
   isMock: boolean;
   title: string;
   title_zh?: string;
+  region?: 'domestic' | 'global';
+  region_reason?: string;
+  region_confidence?: number;
   subtitle?: string;
   sentimentScore?: number;
   confidence?: number;
@@ -99,6 +102,9 @@ async function upsertNewsEvents(symbol: string, limit: number): Promise<void> {
             title: item.title,
             title_en: item.title_en,
             title_zh: item.title_zh,
+            region: item.region,
+            region_reason: item.region_reason,
+            region_confidence: item.region_confidence,
             publishedAt: item.publishedAt,
             summary: item.summary,
             eventType: item.eventType,
@@ -231,7 +237,16 @@ function toEventCard(event: any): EventCardDTO {
 
   if (event.type === 'news') {
     const title = event.title || event.title_en || 'News';
-    return { ...base, title, title_zh: event.title_zh, subtitle: buildNewsSubtitle(event), url: event.url };
+    return {
+      ...base,
+      title,
+      title_zh: event.title_zh,
+      region: event.region,
+      region_reason: event.region_reason,
+      region_confidence: event.region_confidence,
+      subtitle: buildNewsSubtitle(event),
+      url: event.url,
+    };
   }
   if (event.type === 'market') {
     return {

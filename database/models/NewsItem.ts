@@ -6,6 +6,12 @@ export interface INewsItem extends Document {
   title: string;
   title_en?: string;
   title_zh?: string;
+  provider?: string;
+  url_host?: string;
+  region?: 'domestic' | 'global';
+  region_reason?: string;
+  region_confidence?: number;
+  region_updated_at?: number;
   content?: string;
   url?: string;
   source: string;
@@ -28,6 +34,12 @@ const NewsItemSchema = new Schema<INewsItem>(
     title: { type: String, required: true },
     title_en: { type: String, required: false, default: undefined },
     title_zh: { type: String, required: false, default: undefined },
+    provider: { type: String, required: false, default: undefined },
+    url_host: { type: String, required: false, default: undefined },
+    region: { type: String, required: false, default: undefined },
+    region_reason: { type: String, required: false, default: undefined },
+    region_confidence: { type: Number, required: false, default: undefined },
+    region_updated_at: { type: Number, required: false, default: undefined },
     content: { type: String, required: false, default: undefined },
     url: { type: String, required: false, default: undefined },
     source: { type: String, required: true },
