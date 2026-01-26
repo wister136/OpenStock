@@ -1,33 +1,60 @@
+version: '3.8'
+
 services:
   openstock:
     build:
       context: .
+      dockerfile: Dockerfile
+    container_name: openstock-app
+    image: openstock:latest
     ports:
       - "3000:3000"
-    env_file:
-      - .env
+    # env_file 是可选的，如果 .env 文件不存在，将使用下面的 environment 变量
+    # env_file:
+    #   - .env
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://root:${MONGO_ROOT_PASSWORD:-123456}@mongodb:27017/openstock?authSource=admin
     restart: unless-stopped
     depends_on:
       mongodb:
         condition: service_healthy
+    networks:
+      - openstock-network
+    # 可选：如果需要持久化日志
+    # volumes:
+    #   - ./logs:/app/logs
 
   mongodb:
     image: mongo:7
+    container_name: openstock-mongodb
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: 123456
-    # ⚠️ 建议不要对公网暴露 Mongo
-    # 如需本机调试可用 127.0.0.1 绑定
-    ports:
-      - "127.0.0.1:27017:27017"
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-123456}
+      MONGO_INITDB_DATABASE: openstock
+    # 在Container Manager中，建议不对外暴露MongoDB端口
+    # 如果需要从宿主机访问，可以取消注释下面一行
+    # ports:
+    #   - "127.0.0.1:27017:27017"
     volumes:
+      # 使用命名卷（推荐）
       - mongo-data:/data/db
+      # 或者使用绑定挂载到Synology共享文件夹（可选）
+      # - /volume1/docker/openstock/mongodb:/data/db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
+    networks:
+      - openstock-network
+
+networks:
+  openstock-network:
+    driver: bridge
 
 volumes:
   mongo-data:
+    driver: local

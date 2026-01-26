@@ -1,31 +1,38 @@
-# Use official Node.js 20 Alpine image as base
+# Use official Node.js 20 Alpine image as base (支持ARM架构)
 FROM node:20-alpine
 
-# Set working directory
+# 设置工作目录
 WORKDIR /app
 
-# Copy package.json and package-lock.json to leverage Docker cache
+# 安装必要的系统依赖
+RUN apk add --no-cache libc6-compat
+
+# 复制package文件以利用Docker缓存
 COPY package*.json ./
-# Uncomment the next line if you use pnpm and have pnpm-lock.yaml
-# COPY pnpm-lock.yaml ./
 
-# Install dependencies (choose npm or pnpm)
-RUN npm install
-# If using pnpm, replace with:
-# RUN npm install -g pnpm && pnpm install
+# 安装依赖
+RUN npm ci --only=production=false
 
-# Copy all project files
+# 复制项目文件
 COPY . .
 
-# Build the Next.js application
-RUN npm run build
-# Or if using pnpm:
-# RUN pnpm run build
+# 设置构建时跳过数据库连接
+ENV SKIP_DB=true
+ENV NEXT_PHASE=phase-production-build
 
-# Expose the port Next.js runs on
+# 构建Next.js应用
+RUN npm run build
+
+# 清理开发依赖（可选，减小镜像大小）
+# RUN npm prune --production
+
+# 暴露端口
 EXPOSE 3000
 
-# Start the Next.js production server
+# 设置环境变量
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+# 启动Next.js生产服务器
 CMD ["npm", "start"]
-# Or if using pnpm:
-# CMD ["pnpm", "start"]
